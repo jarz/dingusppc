@@ -21,7 +21,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include <devices/video/display.h>
 #include <devices/video/videoctrl.h>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <loguru.hpp>
 #include <cmath>
 #include <string>
@@ -48,16 +48,16 @@ public:
     double          default_scale_y;
     SDL_Texture*    disp_texture = 0;
     SDL_Texture*    cursor_texture = 0;
-    SDL_Rect        cursor_rect; // destination rectangle for cursor drawing
+    SDL_FRect       cursor_rect; // destination rectangle for cursor drawing
     int             display_w;
     int             display_h;
     double          drawable_w;
     double          drawable_h;
-    SDL_Rect        dest_rect;
+    SDL_FRect       dest_rect;
+    SDL_ScaleMode   scale_mode = SDL_SCALEMODE_NEAREST;
 };
 
 Display::Display(): impl(std::make_unique<Impl>()) {
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
 }
 
 Display::~Display() {
@@ -93,28 +93,27 @@ bool Display::configure(int width, int height) {
     if (!impl->display_wnd) { // create display window
         impl->display_wnd = SDL_CreateWindow(
             "",
-            SDL_WINDOWPOS_UNDEFINED,
-            SDL_WINDOWPOS_UNDEFINED,
             impl->display_w, impl->display_h,
-            SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI
+            SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY
         );
 
         impl->disp_wnd_id = SDL_GetWindowID(impl->display_wnd);
         if (impl->display_wnd == NULL)
             ABORT_F("Display: SDL_CreateWindow failed with %s", SDL_GetError());
 
-        impl->renderer = SDL_CreateRenderer(impl->display_wnd, -1, SDL_RENDERER_ACCELERATED);
+        impl->renderer = SDL_CreateRenderer(impl->display_wnd, NULL);
         if (impl->renderer == NULL)
             ABORT_F("Display: SDL_CreateRenderer failed with %s", SDL_GetError());
 
-        SDL_RendererInfo info;
-        SDL_GetRendererInfo(impl->renderer, &info);
-        LOG_F(INFO, "Renderer \"%s\" max size: %d x %d", info.name, info.max_texture_width, info.max_texture_height);
+        const char *renderer_name = SDL_GetRendererName(impl->renderer);
+        int max_w, max_h;
+        SDL_GetRenderOutputSize(impl->renderer, &max_w, &max_h);
+        LOG_F(INFO, "Renderer \"%s\" output size: %d x %d", renderer_name ? renderer_name : "unknown", max_w, max_h);
 
         int w, h;
         double scale = 1.0;
         while (1) {
-            SDL_GetRendererOutputSize(impl->renderer, &w, &h);
+            SDL_GetRenderOutputSize(impl->renderer, &w, &h);
             if (w == 0 || h == 0) {
                 scale /= scale_step;
                 LOG_F(INFO, "Invalid renderer size. Reducing scale to %.3f.", scale);
@@ -157,7 +156,7 @@ void Display::update_window_size() {
             std::round(impl->drawable_w / impl->default_scale_x),
             std::round(impl->drawable_h / impl->default_scale_y));
 
-        SDL_GetRendererOutputSize(impl->renderer, &w, &h);
+        SDL_GetRenderOutputSize(impl->renderer, &w, &h);
 
         w_err = std::abs(impl->drawable_w - w);
         h_err = std::abs(impl->drawable_h - h);
@@ -182,12 +181,12 @@ void Display::configure_dest() {
     if (this->is_set_full_screen != should_set_full_screen) {
         if (should_set_full_screen) {
             int w, h;
-            SDL_SetWindowFullscreen(impl->display_wnd, SDL_WINDOW_FULLSCREEN_DESKTOP);
-            SDL_GetRendererOutputSize(impl->renderer, &w, &h);
+            SDL_SetWindowFullscreen(impl->display_wnd, true);
+            SDL_GetRenderOutputSize(impl->renderer, &w, &h);
             impl->drawable_w = w;
             impl->drawable_h = h;
         } else {
-            SDL_SetWindowFullscreen(impl->display_wnd, 0);
+            SDL_SetWindowFullscreen(impl->display_wnd, false);
             this->update_window_size();
         }
         this->is_set_full_screen = should_set_full_screen;
@@ -274,19 +273,25 @@ void Display::configure_texture() {
 
     if (impl->disp_texture == NULL)
         ABORT_F("Display: SDL_CreateTexture failed with %s", SDL_GetError());
+
+    SDL_SetTextureScaleMode(impl->disp_texture, impl->scale_mode);
 }
+
+// Window event sub_type values (low byte of SDL3 window event types)
+constexpr uint16_t WINDOW_EVENT_PIXEL_SIZE_CHANGED = SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED & 0xFF;
+constexpr uint16_t WINDOW_EVENT_EXPOSED = SDL_EVENT_WINDOW_EXPOSED & 0xFF;
 
 void Display::handle_events(const WindowEvent& wnd_event) {
     switch (wnd_event.sub_type) {
 
-    case SDL_WINDOWEVENT_SIZE_CHANGED:
+    case WINDOW_EVENT_PIXEL_SIZE_CHANGED:
         if (wnd_event.window_id == impl->disp_wnd_id) {
             int ww, wh;
             SDL_GetWindowSize(impl->display_wnd, &ww, &wh);
             int w, h;
-            SDL_GetRendererOutputSize(impl->renderer, &w, &h);
+            SDL_GetRenderOutputSize(impl->renderer, &w, &h);
             double new_default_scale_x = w / ww;
-            double new_default_scale_y = w / ww;
+            double new_default_scale_y = h / wh;
             if (new_default_scale_x != impl->default_scale_x || new_default_scale_y != impl->default_scale_y) {
                 // recalculate scale when switching between Retina and Low Resolution modes
                 impl->drawable_w = impl->drawable_w * new_default_scale_x / impl->default_scale_x;
@@ -302,7 +307,7 @@ void Display::handle_events(const WindowEvent& wnd_event) {
         }
         break;
 
-    case SDL_WINDOWEVENT_EXPOSED:
+    case WINDOW_EVENT_EXPOSED:
         if (wnd_event.window_id == impl->disp_wnd_id) {
             SDL_RenderPresent(impl->renderer);
         }
@@ -310,11 +315,10 @@ void Display::handle_events(const WindowEvent& wnd_event) {
 
     case DPPC_WINDOWEVENT_WINDOW_SCALE_QUALITY_TOGGLE:
         if (wnd_event.window_id == impl->disp_wnd_id) {
-            auto current_quality = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY);
-            auto new_quality = current_quality == NULL || strcmp(current_quality, "nearest") == 0 ? "best" : "nearest";
-            SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, new_quality);
+            impl->scale_mode = (impl->scale_mode == SDL_SCALEMODE_NEAREST) ?
+                SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST;
 
-            // We need the window/texture to be recreated to pick up the hint change.
+            // We need textures to be recreated to pick up the scale mode change.
             this->configure_texture();
             video_ctrl->set_draw_fb();
             video_ctrl->set_cursor_dirty();
@@ -378,32 +382,33 @@ void Display::handle_events(const WindowEvent& wnd_event) {
 
 void Display::toggle_mouse_grab()
 {
-    if (SDL_GetRelativeMouseMode()) {
-        SDL_SetRelativeMouseMode(SDL_FALSE);
+    if (SDL_GetWindowRelativeMouseMode(impl->display_wnd)) {
+        SDL_SetWindowRelativeMouseMode(impl->display_wnd, false);
     } else {
         this->update_mouse_grab(true);
-        SDL_SetRelativeMouseMode(SDL_TRUE);
+        SDL_SetWindowRelativeMouseMode(impl->display_wnd, true);
     }
 }
 
 void Display::update_mouse_grab(bool will_be_grabbed)
 {
-    bool is_grabbed = SDL_GetRelativeMouseMode();
+    bool is_grabbed = SDL_GetWindowRelativeMouseMode(impl->display_wnd);
     if (will_be_grabbed || is_grabbed) {
         // If the mouse is initially outside the window, move it to the middle,
         // so that clicks are handled by the window (instead making it lose
         // focus, at least with macOS hosts).
-        int window_x, window_y, window_width, window_height, mouse_x, mouse_y;
+        int window_x, window_y, window_width, window_height;
+        float mouse_x, mouse_y;
         SDL_GetWindowPosition(impl->display_wnd, &window_x, &window_y);
         SDL_GetWindowSize(impl->display_wnd, &window_width, &window_height);
         SDL_GetGlobalMouseState(&mouse_x, &mouse_y);
         if (mouse_x < window_x || mouse_x >= window_x + window_width ||
                 mouse_y < window_y || mouse_y >= window_y + window_height) {
             if (is_grabbed)
-                SDL_SetRelativeMouseMode(SDL_FALSE);
-            SDL_WarpMouseInWindow(impl->display_wnd, window_width / 2, window_height / 2);
+                SDL_SetWindowRelativeMouseMode(impl->display_wnd, false);
+            SDL_WarpMouseInWindow(impl->display_wnd, window_width / 2.0f, window_height / 2.0f);
             if (is_grabbed)
-                SDL_SetRelativeMouseMode(SDL_TRUE);
+                SDL_SetWindowRelativeMouseMode(impl->display_wnd, true);
         }
     }
 }
@@ -414,7 +419,7 @@ void Display::update_window_title()
 
     int width, height;
     SDL_GetWindowSize(impl->display_wnd, &width, &height);
-    bool is_grabbed = SDL_GetRelativeMouseMode();
+    bool is_grabbed = SDL_GetWindowRelativeMouseMode(impl->display_wnd);
 
     std::string new_window_title = "DingusPPC Display " +
         std::to_string(impl->display_w) + "x" + std::to_string(impl->display_h)
@@ -450,13 +455,13 @@ void Display::update(std::function<void(uint8_t *dst_buf, int dst_pitch)> conver
 
     SDL_UnlockTexture(impl->disp_texture);
     SDL_RenderClear(impl->renderer);
-    SDL_RenderCopy(impl->renderer, impl->disp_texture, NULL, &impl->dest_rect);
+    SDL_RenderTexture(impl->renderer, impl->disp_texture, NULL, &impl->dest_rect);
 
     // draw HW cursor if enabled
     if (draw_hw_cursor) {
         impl->cursor_rect.x = cursor_x * impl->renderer_scale_x + impl->dest_rect.x;
         impl->cursor_rect.y = cursor_y * impl->renderer_scale_y + impl->dest_rect.y;
-        SDL_RenderCopy(impl->renderer, impl->cursor_texture, NULL, &impl->cursor_rect);
+        SDL_RenderTexture(impl->renderer, impl->cursor_texture, NULL, &impl->cursor_rect);
     }
 
     SDL_RenderPresent(impl->renderer);
@@ -484,6 +489,7 @@ void Display::setup_hw_cursor(std::function<void(uint8_t *dst_buf, int dst_pitch
     if (impl->cursor_texture == NULL)
         ABORT_F("SDL_CreateTexture for HW cursor failed with %s", SDL_GetError());
 
+    SDL_SetTextureScaleMode(impl->cursor_texture, impl->scale_mode);
     SDL_LockTexture(impl->cursor_texture, NULL, (void **)&dst_buf, &dst_pitch);
     SDL_SetTextureBlendMode(impl->cursor_texture, SDL_BLENDMODE_BLEND);
     draw_hw_cursor(dst_buf, dst_pitch);

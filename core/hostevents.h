@@ -36,7 +36,8 @@ public:
 };
 
 enum : uint16_t {
-    // Standard SDL window event types are uint8_t's.
+    // In SDL3, window events are separate event types.
+    // We use the low byte to identify them in our custom event system.
     // We add our own custom events after that.
     DPPC_WINDOWEVENT_WINDOW_SCALE_QUALITY_TOGGLE = 1 << 8,
     DPPC_WINDOWEVENT_MOUSE_GRAB_TOGGLE,
@@ -62,8 +63,8 @@ public:
     ~MouseEvent() = default;
 
     uint32_t    flags;
-    uint32_t    xrel;
-    uint32_t    yrel;
+    int32_t     xrel;
+    int32_t     yrel;
     uint32_t    xabs;
     uint32_t    yabs;
     uint8_t     buttons_state;
