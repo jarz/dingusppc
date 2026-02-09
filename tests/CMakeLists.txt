@@ -79,6 +79,17 @@ if (UNIX)
     target_link_libraries(test_athens PRIVATE ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
+add_executable(test_displayid test_displayid.cpp
+    "${DPPC_ROOT}/devices/video/displayid.cpp"
+    "${DPPC_ROOT}/machines/machineproperties.cpp"
+    "${DPPC_ROOT}/thirdparty/loguru/loguru.cpp")
+target_include_directories(test_displayid PRIVATE
+    "${DPPC_ROOT}"
+    "${DPPC_ROOT}/thirdparty/loguru")
+if (UNIX)
+    target_link_libraries(test_displayid PRIVATE ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+endif()
+
 enable_testing()
 add_test(NAME test_bitops COMMAND test_bitops)
 add_test(NAME test_endianswap COMMAND test_endianswap)
@@ -96,3 +107,4 @@ add_test(NAME test_pcicfglog COMMAND test_pcicfglog)
 add_test(NAME test_banditdefs COMMAND test_banditdefs)
 add_test(NAME test_checksums COMMAND test_checksums)
 add_test(NAME test_athens COMMAND test_athens)
+add_test(NAME test_displayid COMMAND test_displayid)
