@@ -25,6 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #define SCSI_H
 
 #include <devices/common/hwcomponent.h>
+#include <devices/common/scsi/scsiphysinterface.h>
 
 #include <array>
 #include <cinttypes>
@@ -143,15 +144,9 @@ enum ScsiCommand : uint8_t {
     READ_TOC                     = 0x43,
     SET_CD_SPEED                 = 0xBB,
     READ_CD                      = 0xBE,
-
-    // vendor specific commands
-    VENDOR_09                    = 0x09,
-    EJECT                        = 0xC0,
-    READ_CDDA                    = 0xD8, //TOSHIBA
-    READ_CDDA_MSF                = 0xD9, //TOSHIBA
 };
 
-enum ScsiSense : int {
+enum ScsiSense : uint8_t {
     NO_SENSE       = 0x0,
     RECOVERED      = 0x1,
     NOT_READY      = 0x2,
@@ -166,7 +161,7 @@ enum ScsiSense : int {
     COMPLETED      = 0xF
 };
 
-enum ScsiError : int {
+enum ScsiError : uint8_t {
     NO_ERROR                = 0x00,
     NO_SECTOR               = 0x01,
     WRITE_FAULT             = 0x03,
@@ -197,6 +192,17 @@ namespace ScsiDevType {
     };
 };
 
+/** SCSI device capacity flags. */
+enum : uint8_t {
+    CAP_REL_ADDR    = 1 << 7, // device supports relative addressing
+    CAP_W32_XFER    = 1 << 6, // device supports 32-bit wide transfers
+    CAP_W16_XFER    = 1 << 5, // device supports 16-bit wide transfers
+    CAP_SYNC_XFER   = 1 << 4, // device supports synchronous transfers
+    CAP_LINKED_CMDS = 1 << 3, // device supports linked commands
+    CAP_CMD_QUEUE   = 1 << 1, // device supports command queuing
+    CAP_CMD_SRST    = 1 << 0, // device supports soft resets
+};
+
 /** Standard SCSI bus timing values measured in ns. */
 constexpr uint64_t BUS_SETTLE_DELAY = 400;
 constexpr uint64_t BUS_FREE_DELAY   = 800;
@@ -211,29 +217,42 @@ class ScsiBus;
 
 typedef std::function<void()> action_callback;
 
-class ScsiDevice : public HWComponent {
+class ScsiPhysDevice : public ScsiPhysInterface, public HWComponent {
 public:
-    ScsiDevice(std::string name, int my_id) {
+    ScsiPhysDevice(std::string name, int my_id) : ScsiPhysInterface(PHY_ID_SCSI) {
         this->set_name(name);
         supports_types(HWCompType::SCSI_DEV);
         this->scsi_id = my_id;
         this->lun = 0,
         this->cur_phase = ScsiPhase::BUS_FREE;
     }
-    ~ScsiDevice() = default;
+    ~ScsiPhysDevice() = default;
+
+    // ScsiPhysInterface methods
+    bool last_sel_has_attention() override {
+        return this->last_selection_has_attention;
+    }
+
+    uint8_t last_sel_msg() override {
+        return this->last_selection_message;
+    }
+
+    void set_xfer_len(uint64_t len) override {}
+
+    void set_status(uint8_t status_code) override {
+        this->status = status_code;
+    }
 
     virtual void notify(ScsiNotification notif_type, int param);
     virtual void next_step();
     virtual void prepare_xfer(ScsiBus* bus_obj, int& bytes_in, int& bytes_out);
-    virtual void switch_phase(const int new_phase);
+    virtual void switch_phase(const int new_phase) override;
     virtual bool allow_phase_change();
 
     virtual bool has_data() { return this->data_size != 0; }
     virtual int  xfer_data();
     virtual int  send_data(uint8_t* dst_ptr, int count);
     virtual int  rcv_data(const uint8_t* src_ptr, const int count);
-    virtual bool check_lun();
-    void illegal_command(const uint8_t* cmd);
 
     virtual bool prepare_data() = 0;
     virtual bool get_more_data() = 0;
@@ -243,8 +262,6 @@ public:
     void set_bus_object_ptr(ScsiBus *bus_obj_ptr) {
         this->bus_obj = bus_obj_ptr;
     }
-
-    void report_error(uint8_t sense_key, uint8_t asc);
 
 protected:
     uint8_t     cmd_buf[16] = {};
@@ -257,13 +274,6 @@ protected:
     int         data_size;
     int         incoming_size;
     uint8_t     status;
-
-    int         sense = ScsiSense::NO_SENSE;
-    int         asc   = 0;
-    int         ascq  = 0;
-    int         sksv  = 0;
-    int         field = 0;
-    bool        valid = true;
 
     bool        last_selection_has_attention = false;
     uint8_t     last_selection_message = 0;
@@ -292,7 +302,7 @@ public:
     void attach_scsi_devices(const std::string bus_suffix);
 
     // low-level state management
-    void    register_device(int id, ScsiDevice* dev_obj);
+    void    register_device(int id, ScsiPhysDevice* dev_obj);
 
     int current_phase() const {
         return this->cur_phase;
@@ -334,7 +344,7 @@ protected:
 
 private:
     // SCSI devices registered with this bus
-    std::array<ScsiDevice*, SCSI_MAX_DEVS> devices;
+    std::array<ScsiPhysDevice*, SCSI_MAX_DEVS> devices;
 
     // per-device state of the control lines
     uint16_t    dev_ctrl_lines[SCSI_MAX_DEVS] = {};
