@@ -58,6 +58,22 @@ target_include_directories(test_mmudefs PRIVATE "${DPPC_ROOT}")
 add_executable(test_mmiodevice test_mmiodevice.cpp)
 target_include_directories(test_mmiodevice PRIVATE "${DPPC_ROOT}")
 
+add_executable(test_machineprops test_machineprops.cpp
+    "${DPPC_ROOT}/machines/machineproperties.cpp"
+    "${DPPC_ROOT}/thirdparty/loguru/loguru.cpp")
+target_include_directories(test_machineprops PRIVATE
+    "${DPPC_ROOT}"
+    "${DPPC_ROOT}/thirdparty/loguru")
+if (UNIX)
+    target_link_libraries(test_machineprops PRIVATE ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+endif()
+
+add_executable(test_pcicfglog test_pcicfglog.cpp)
+target_include_directories(test_pcicfglog PRIVATE "${DPPC_ROOT}")
+
+add_executable(test_adbdefs test_adbdefs.cpp)
+target_include_directories(test_adbdefs PRIVATE "${DPPC_ROOT}")
+
 enable_testing()
 add_test(NAME test_bitops COMMAND test_bitops)
 add_test(NAME test_endianswap COMMAND test_endianswap)
@@ -73,3 +89,6 @@ add_test(NAME test_dmacore COMMAND test_dmacore)
 add_test(NAME test_scsidefs COMMAND test_scsidefs)
 add_test(NAME test_mmudefs COMMAND test_mmudefs)
 add_test(NAME test_mmiodevice COMMAND test_mmiodevice)
+add_test(NAME test_machineprops COMMAND test_machineprops)
+add_test(NAME test_pcicfglog COMMAND test_pcicfglog)
+add_test(NAME test_adbdefs COMMAND test_adbdefs)
