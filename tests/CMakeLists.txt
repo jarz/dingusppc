@@ -74,6 +74,15 @@ target_include_directories(test_pcicfglog PRIVATE "${DPPC_ROOT}")
 add_executable(test_adbdefs test_adbdefs.cpp)
 target_include_directories(test_adbdefs PRIVATE "${DPPC_ROOT}")
 
+add_executable(test_floppydefs test_floppydefs.cpp)
+target_include_directories(test_floppydefs PRIVATE "${DPPC_ROOT}")
+
+add_executable(test_videodefs test_videodefs.cpp)
+target_include_directories(test_videodefs PRIVATE "${DPPC_ROOT}")
+
+add_executable(test_banditdefs test_banditdefs.cpp)
+target_include_directories(test_banditdefs PRIVATE "${DPPC_ROOT}")
+
 enable_testing()
 add_test(NAME test_bitops COMMAND test_bitops)
 add_test(NAME test_endianswap COMMAND test_endianswap)
@@ -92,3 +101,6 @@ add_test(NAME test_mmiodevice COMMAND test_mmiodevice)
 add_test(NAME test_machineprops COMMAND test_machineprops)
 add_test(NAME test_pcicfglog COMMAND test_pcicfglog)
 add_test(NAME test_adbdefs COMMAND test_adbdefs)
+add_test(NAME test_floppydefs COMMAND test_floppydefs)
+add_test(NAME test_videodefs COMMAND test_videodefs)
+add_test(NAME test_banditdefs COMMAND test_banditdefs)
