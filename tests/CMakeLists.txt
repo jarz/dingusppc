@@ -49,6 +49,15 @@ target_include_directories(test_atadefs PRIVATE "${DPPC_ROOT}")
 add_executable(test_dmacore test_dmacore.cpp)
 target_include_directories(test_dmacore PRIVATE "${DPPC_ROOT}")
 
+add_executable(test_scsidefs test_scsidefs.cpp)
+target_include_directories(test_scsidefs PRIVATE "${DPPC_ROOT}")
+
+add_executable(test_mmudefs test_mmudefs.cpp)
+target_include_directories(test_mmudefs PRIVATE "${DPPC_ROOT}")
+
+add_executable(test_mmiodevice test_mmiodevice.cpp)
+target_include_directories(test_mmiodevice PRIVATE "${DPPC_ROOT}")
+
 enable_testing()
 add_test(NAME test_bitops COMMAND test_bitops)
 add_test(NAME test_endianswap COMMAND test_endianswap)
@@ -61,3 +70,6 @@ add_test(NAME test_timermanager COMMAND test_timermanager)
 add_test(NAME test_pciconv COMMAND test_pciconv)
 add_test(NAME test_atadefs COMMAND test_atadefs)
 add_test(NAME test_dmacore COMMAND test_dmacore)
+add_test(NAME test_scsidefs COMMAND test_scsidefs)
+add_test(NAME test_mmudefs COMMAND test_mmudefs)
+add_test(NAME test_mmiodevice COMMAND test_mmiodevice)
