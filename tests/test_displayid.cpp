@@ -155,9 +155,7 @@ static void test_ext_sense_vga() {
     CHECK_EQ(disp.read_monitor_sense(0b011, 0b100), (uint8_t)0x01);
 
     // Pull line 1 low: ((0x17 & 0x08) >> 1) | ((0x17 & 0x04) >> 2) = 0 | 1 = 1
-    CHECK_EQ(disp.read_monitor_sense(0b101, 0b010), (uint8_t)0x01);
-
-    // Pull line 0 low: (0x17 & 0x03) << 1 = 3 << 1 = 6
+    CHECK_EQ(disp.read_monitor_sense(0b101, 0b010), (uint8_t)0x01);    // Pull line 0 low: (0x17 & 0x03) << 1 = 3 << 1 = 6
     CHECK_EQ(disp.read_monitor_sense(0b110, 0b001), (uint8_t)0x06);
 }
 
@@ -182,13 +180,14 @@ static void test_ext_sense_uniqueness() {
         uint8_t p2 = d.read_monitor_sense(0b011, 0b100);  // bits [5:4]
         uint8_t p1 = d.read_monitor_sense(0b101, 0b010);  // rearranged [3:2]
         uint8_t p0 = d.read_monitor_sense(0b110, 0b001);  // shifted [1:0]
-        // Reconstruct: p2 gives bits 5:4, p1 gives bits 3:2, p0 gives bits 1:0
-        // p2 = (ext >> 4) & 3
-        // p1 = ((ext & 0x08) >> 1) | ((ext & 0x04) >> 2) -> bit 2 of result = ext bit 3, bit 0 of result = ext bit 2
-        // p0 = (ext & 0x03) << 1
+        // Reconstruct ext_sense_code:
+        // p2 = (ext >> 4) & 3 -> gives ext bits 5:4 directly
+        // p1 = ((ext & 0x08) >> 1) | ((ext & 0x04) >> 2)
+        //      -> p1 bit 2 carries ext bit 3, p1 bit 0 carries ext bit 2
+        // p0 = (ext & 0x03) << 1 -> ext bits 1:0 shifted left by 1
         uint8_t b54 = p2 << 4;
-        uint8_t b3 = (p1 & 0x04) << 1;  // bit 2 of p1 -> bit 3
-        uint8_t b2 = (p1 & 0x01) << 2;  // bit 0 of p1 -> bit 2
+        uint8_t b3 = (p1 & 0x04) << 1;  // p1 bit 2 -> ext bit 3
+        uint8_t b2 = (p1 & 0x01) << 2;  // p1 bit 0 -> ext bit 2
         uint8_t b10 = p0 >> 1;
         return b54 | b3 | b2 | b10;
     };
