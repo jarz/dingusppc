@@ -40,6 +40,15 @@ if (UNIX)
     target_link_libraries(test_timermanager PRIVATE ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
+add_executable(test_pciconv test_pciconv.cpp)
+target_include_directories(test_pciconv PRIVATE "${DPPC_ROOT}")
+
+add_executable(test_atadefs test_atadefs.cpp)
+target_include_directories(test_atadefs PRIVATE "${DPPC_ROOT}")
+
+add_executable(test_dmacore test_dmacore.cpp)
+target_include_directories(test_dmacore PRIVATE "${DPPC_ROOT}")
+
 enable_testing()
 add_test(NAME test_bitops COMMAND test_bitops)
 add_test(NAME test_endianswap COMMAND test_endianswap)
@@ -49,3 +58,6 @@ add_test(NAME test_coresignal COMMAND test_coresignal)
 add_test(NAME test_ppcdisasm COMMAND test_ppcdisasm)
 add_test(NAME test_hwcomponent COMMAND test_hwcomponent)
 add_test(NAME test_timermanager COMMAND test_timermanager)
+add_test(NAME test_pciconv COMMAND test_pciconv)
+add_test(NAME test_atadefs COMMAND test_atadefs)
+add_test(NAME test_dmacore COMMAND test_dmacore)
