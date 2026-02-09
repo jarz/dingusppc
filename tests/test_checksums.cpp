@@ -196,12 +196,8 @@ static void test_chrp_checksum_all_fields() {
     uint8_t hdr[16];
     memset(hdr, 0x10, sizeof(hdr));
     hdr[1] = 0xFF;  // should be ignored
-    // sum: 0x10 (byte 0) + 0x10*13 (bytes 2-14) + 0x10 (byte 15) = 0x10 + 0xE0 = 0xF0
-    // Actually: 0x10 * 15 bytes minus byte 1 = 0x10 * 14 = 0xE0
-    // Wait: bytes summed are [0] and [2..15] = 1 + 14 = 15 bytes
-    // But wait, the loop is for i=2; i<16 which is bytes 2,3,...,15 = 14 bytes
-    // Plus data[0]. So 15 bytes total.
-    // 15 * 0x10 = 0xF0 (< 256, no carry)
+    // Bytes summed are [0] and [2..15] (15 bytes total, skipping index 1)
+    // sum = 15 * 0x10 = 0xF0 (no carry)
     CHECK_EQ(chrp_checksum_hdr(hdr), (uint8_t)0xF0);
 }
 
