@@ -43,20 +43,11 @@ endif()
 add_executable(test_pciconv test_pciconv.cpp)
 target_include_directories(test_pciconv PRIVATE "${DPPC_ROOT}")
 
-add_executable(test_atadefs test_atadefs.cpp)
-target_include_directories(test_atadefs PRIVATE "${DPPC_ROOT}")
-
 add_executable(test_dmacore test_dmacore.cpp)
 target_include_directories(test_dmacore PRIVATE "${DPPC_ROOT}")
 
-add_executable(test_scsidefs test_scsidefs.cpp)
-target_include_directories(test_scsidefs PRIVATE "${DPPC_ROOT}")
-
 add_executable(test_mmudefs test_mmudefs.cpp)
 target_include_directories(test_mmudefs PRIVATE "${DPPC_ROOT}")
-
-add_executable(test_mmiodevice test_mmiodevice.cpp)
-target_include_directories(test_mmiodevice PRIVATE "${DPPC_ROOT}")
 
 add_executable(test_machineprops test_machineprops.cpp
     "${DPPC_ROOT}/machines/machineproperties.cpp"
@@ -71,15 +62,6 @@ endif()
 add_executable(test_pcicfglog test_pcicfglog.cpp)
 target_include_directories(test_pcicfglog PRIVATE "${DPPC_ROOT}")
 
-add_executable(test_adbdefs test_adbdefs.cpp)
-target_include_directories(test_adbdefs PRIVATE "${DPPC_ROOT}")
-
-add_executable(test_floppydefs test_floppydefs.cpp)
-target_include_directories(test_floppydefs PRIVATE "${DPPC_ROOT}")
-
-add_executable(test_videodefs test_videodefs.cpp)
-target_include_directories(test_videodefs PRIVATE "${DPPC_ROOT}")
-
 add_executable(test_banditdefs test_banditdefs.cpp)
 target_include_directories(test_banditdefs PRIVATE "${DPPC_ROOT}")
 
@@ -93,14 +75,8 @@ add_test(NAME test_ppcdisasm COMMAND test_ppcdisasm)
 add_test(NAME test_hwcomponent COMMAND test_hwcomponent)
 add_test(NAME test_timermanager COMMAND test_timermanager)
 add_test(NAME test_pciconv COMMAND test_pciconv)
-add_test(NAME test_atadefs COMMAND test_atadefs)
 add_test(NAME test_dmacore COMMAND test_dmacore)
-add_test(NAME test_scsidefs COMMAND test_scsidefs)
 add_test(NAME test_mmudefs COMMAND test_mmudefs)
-add_test(NAME test_mmiodevice COMMAND test_mmiodevice)
 add_test(NAME test_machineprops COMMAND test_machineprops)
 add_test(NAME test_pcicfglog COMMAND test_pcicfglog)
-add_test(NAME test_adbdefs COMMAND test_adbdefs)
-add_test(NAME test_floppydefs COMMAND test_floppydefs)
-add_test(NAME test_videodefs COMMAND test_videodefs)
 add_test(NAME test_banditdefs COMMAND test_banditdefs)

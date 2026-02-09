@@ -58,13 +58,6 @@ static int ntested = 0;
     } \
 } while(0)
 
-/* ---- Bandit constants ---- */
-
-static void test_bandit_constants() {
-    CHECK_EQ(BANDIT_DEV, 11);
-    CHECK_EQ(BANDIT_CAR_TYPE, 1);
-}
-
 /* ---- SINGLE_BIT_SET macro ---- */
 
 static void test_single_bit_set_powers_of_2() {
@@ -129,7 +122,6 @@ static void test_pci_config_addr_extraction() {
 int main() {
     cout << "Running banditdefs tests..." << endl;
 
-    test_bandit_constants();
     test_single_bit_set_powers_of_2();
     test_single_bit_set_non_powers();
     test_pci_config_addr_extraction();

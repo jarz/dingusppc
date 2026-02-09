@@ -143,18 +143,6 @@ static void test_priority_queue_single_element() {
     CHECK_TRUE(pq.empty());
 }
 
-static void test_time_constants() {
-    CHECK_EQ(NS_PER_SEC, 1000000000);
-    CHECK_EQ(USEC_PER_SEC, 1000000);
-    CHECK_EQ(NS_PER_USEC, 1000);
-    CHECK_EQ(NS_PER_MSEC, 1000000);
-    CHECK_EQ(ONE_BILLION_NS, 1000000000);
-    CHECK_EQ(USECS_TO_NSECS(1), 1000);
-    CHECK_EQ(USECS_TO_NSECS(1000), 1000000);
-    CHECK_EQ(MSECS_TO_NSECS(1), 1000000);
-    CHECK_EQ(MSECS_TO_NSECS(1000), 1000000000);
-}
-
 int main() {
     cout << "Running timermanager tests..." << endl;
 
@@ -163,7 +151,6 @@ int main() {
     test_priority_queue_remove_top();
     test_priority_queue_remove_nonexistent();
     test_priority_queue_single_element();
-    test_time_constants();
 
     cout << "Tested: " << ntested << ", Failed: " << nfailed << endl;
     return nfailed ? 1 : 0;

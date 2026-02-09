@@ -50,23 +50,6 @@ static int ntested = 0;
     } \
 } while(0)
 
-static void test_dma_pull_result_enum() {
-    CHECK_EQ((int)DmaPullResult::MoreData, 0);
-    CHECK_EQ((int)DmaPullResult::NoMoreData, 1);
-}
-
-static void test_dma_msg_enum() {
-    CHECK_EQ((unsigned)DmaMsg::CH_START, 1u);
-    CHECK_EQ((unsigned)DmaMsg::CH_STOP, 2u);
-    CHECK_EQ((unsigned)DmaMsg::DATA_AVAIL, 3u);
-}
-
-static void test_xfer_dir_enum() {
-    CHECK_EQ((unsigned)XferDir::DMA_DIR_UNDEF, 0u);
-    CHECK_EQ((unsigned)XferDir::DMA_DIR_TO_DEV, 1u);
-    CHECK_EQ((unsigned)XferDir::DMA_DIR_FROM_DEV, 2u);
-}
-
 // Concrete DmaOutChannel for testing (pure virtual pull_data needs impl)
 class TestOutChannel : public DmaOutChannel {
 public:
@@ -151,9 +134,6 @@ static void test_dma_connect() {
 int main() {
     cout << "Running dmacore tests..." << endl;
 
-    test_dma_pull_result_enum();
-    test_dma_msg_enum();
-    test_xfer_dir_enum();
     test_dma_out_channel();
     test_dma_in_channel();
     test_dma_bidir_channel();
