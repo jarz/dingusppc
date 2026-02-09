@@ -28,7 +28,8 @@ endif()
 add_executable(test_coresignal test_coresignal.cpp)
 target_include_directories(test_coresignal PRIVATE "${DPPC_ROOT}")
 
-add_executable(test_ppcdisasm test_ppcdisasm.cpp)
+add_executable(test_ppcdisasm test_ppcdisasm.cpp
+    "${DPPC_ROOT}/cpu/ppc/ppcdisasm.cpp")
 target_include_directories(test_ppcdisasm PRIVATE "${DPPC_ROOT}")
 
 add_executable(test_hwcomponent test_hwcomponent.cpp)
@@ -68,6 +69,16 @@ target_include_directories(test_banditdefs PRIVATE "${DPPC_ROOT}")
 add_executable(test_checksums test_checksums.cpp nubuscrc_impl.cpp)
 target_include_directories(test_checksums PRIVATE "${DPPC_ROOT}")
 
+add_executable(test_athens test_athens.cpp
+    "${DPPC_ROOT}/devices/common/clockgen/athens.cpp"
+    "${DPPC_ROOT}/thirdparty/loguru/loguru.cpp")
+target_include_directories(test_athens PRIVATE
+    "${DPPC_ROOT}"
+    "${DPPC_ROOT}/thirdparty/loguru")
+if (UNIX)
+    target_link_libraries(test_athens PRIVATE ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+endif()
+
 enable_testing()
 add_test(NAME test_bitops COMMAND test_bitops)
 add_test(NAME test_endianswap COMMAND test_endianswap)
@@ -84,3 +95,4 @@ add_test(NAME test_machineprops COMMAND test_machineprops)
 add_test(NAME test_pcicfglog COMMAND test_pcicfglog)
 add_test(NAME test_banditdefs COMMAND test_banditdefs)
 add_test(NAME test_checksums COMMAND test_checksums)
+add_test(NAME test_athens COMMAND test_athens)

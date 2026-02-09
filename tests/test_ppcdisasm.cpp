@@ -8,11 +8,15 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 
-/** Unit tests for cpu/ppc/ppcdisasm.h SIGNEXT macro */
+/** Unit tests for cpu/ppc/ppcdisasm.h — SIGNEXT macro and disassemble_single() */
 
 #include <cpu/ppc/ppcdisasm.h>
 #include <cinttypes>
 #include <iostream>
+#include <string>
+
+// Stub for get_reg() referenced by ppcdisasm.cpp but defined in ppcexec.cpp
+uint64_t get_reg(std::string reg_name) { return 0; }
 
 using namespace std;
 
@@ -27,6 +31,18 @@ static int ntested = 0;
         cerr << "FAIL " << __FILE__ << ":" << __LINE__ << " " \
              << #expr << " => 0x" << hex << (uint64_t)(uint32_t)got_ \
              << ", expected 0x" << hex << (uint64_t)(uint32_t)exp_ << endl; \
+        nfailed++; \
+    } \
+} while(0)
+
+#define CHECK_STR_EQ(expr, expected) do { \
+    ntested++; \
+    auto got_ = (expr); \
+    string exp_(expected); \
+    if (got_ != exp_) { \
+        cerr << "FAIL " << __FILE__ << ":" << __LINE__ << " " \
+             << #expr << " => \"" << got_ \
+             << "\", expected \"" << exp_ << "\"" << endl; \
         nfailed++; \
     } \
 } while(0)
@@ -66,12 +82,89 @@ static void test_signext_boundary_values() {
     CHECK_EQ((uint32_t)SIGNEXT(0x7FFFFF, 23), 0x007FFFFFu);
 }
 
+/* ---- disassemble_single() tests ---- */
+
+// Helper: disassemble an instruction at a given address with simplified mnemonics
+static string disasm(uint32_t addr, uint32_t opcode) {
+    PPCDisasmContext ctx = {};
+    ctx.instr_addr = addr;
+    ctx.instr_code = opcode;
+    ctx.simplified = true;
+    return disassemble_single(&ctx);
+}
+
+// Test vectors derived from cpu/ppc/test/ppcdisasmtest.csv
+
+static void test_disasm_branches() {
+    // bl 0xFFF0335C
+    CHECK_STR_EQ(disasm(0xFFF03008, 0x48000355), "bl      0xFFF0335C");
+    // b 0xFFF0335C
+    CHECK_STR_EQ(disasm(0xFFF03000, 0x4280035C), "b       0xFFF0335C");
+    // ba 0x00000800
+    CHECK_STR_EQ(disasm(0xFFF03000, 0x48000802), "ba      0x00000800");
+    // bla 0x00000800
+    CHECK_STR_EQ(disasm(0xFFF03000, 0x48000803), "bla     0x00000800");
+}
+
+static void test_disasm_branch_ctr() {
+    // bctr (with trailing padding)
+    CHECK_STR_EQ(disasm(0xFFF03000, 0x4E800420), "bctr    ");
+    // bctrl
+    CHECK_STR_EQ(disasm(0xFFF03000, 0x4E800421), "bctrl   ");
+}
+
+static void test_disasm_branch_lr() {
+    // blr
+    CHECK_STR_EQ(disasm(0xFFF03000, 0x4E800020), "blr     ");
+    // blrl
+    CHECK_STR_EQ(disasm(0xFFF03000, 0x4E800021), "blrl    ");
+}
+
+static void test_disasm_arithmetic_imm() {
+    // addi r1, r1, -0x20
+    CHECK_STR_EQ(disasm(0, 0x3821FFE0), "addi    r1, r1, -0x20");
+
+    // li r3, 0x0 (simplified addi r3,r0,0)
+    CHECK_STR_EQ(disasm(0, 0x38600000), "li      r3, 0x0");
+
+    // li r0, 0x1
+    CHECK_STR_EQ(disasm(0, 0x38000001), "li      r0, 0x1");
+}
+
+static void test_disasm_logical_imm() {
+    // ori r0,r0,0 is the canonical nop
+    CHECK_STR_EQ(disasm(0, 0x60000000), "nop     ");
+}
+
+static void test_disasm_load_store() {
+    // lwz r0, 0x0(r1)
+    CHECK_STR_EQ(disasm(0, 0x80010000), "lwz     r0, 0x0(r1)");
+
+    // stw r0, 0x4(r1)
+    CHECK_STR_EQ(disasm(0, 0x90010004), "stw     r0, 0x4(r1)");
+
+    // lbz r3, 0x0(r4)
+    CHECK_STR_EQ(disasm(0, 0x88640000), "lbz     r3, 0x0(r4)");
+}
+
+static void test_disasm_system() {
+    // sc (system call)
+    CHECK_STR_EQ(disasm(0, 0x44000002), "sc      ");
+}
+
 int main() {
-    cout << "Running ppcdisasm SIGNEXT tests..." << endl;
+    cout << "Running ppcdisasm tests..." << endl;
 
     test_signext_no_extension_needed();
     test_signext_extension_needed();
     test_signext_boundary_values();
+    test_disasm_branches();
+    test_disasm_branch_ctr();
+    test_disasm_branch_lr();
+    test_disasm_arithmetic_imm();
+    test_disasm_logical_imm();
+    test_disasm_load_store();
+    test_disasm_system();
 
     cout << "Tested: " << ntested << ", Failed: " << nfailed << endl;
     return nfailed ? 1 : 0;
