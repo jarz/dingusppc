@@ -25,6 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <cinttypes>
 #include <string>
 
+uint32_t calculate_rom_crc(uint8_t *data_ptr, int length);
 int load_declaration_rom(const std::string rom_path, int slot_num);
 
 #endif // NUBUS_UTILS_H

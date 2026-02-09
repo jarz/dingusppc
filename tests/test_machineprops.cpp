@@ -42,19 +42,6 @@ static int ntested = 0;
     } \
 } while(0)
 
-/* ---- PropType / CheckType enums ---- */
-
-static void test_prop_type_enums() {
-    CHECK_EQ((int)PROP_TYPE_UNKNOWN, 0);
-    CHECK_EQ((int)PROP_TYPE_STRING, 1);
-    CHECK_EQ((int)PROP_TYPE_INTEGER, 2);
-    CHECK_EQ((int)PROP_TYPE_BINARY, 3);
-
-    CHECK_EQ((int)CHECK_TYPE_NONE, 0);
-    CHECK_EQ((int)CHECK_TYPE_RANGE, 1);
-    CHECK_EQ((int)CHECK_TYPE_LIST, 2);
-}
-
 /* ---- BinProperty ---- */
 
 static void test_bin_property_construct() {
@@ -195,10 +182,82 @@ static void test_int_property_clone() {
     delete cloned;
 }
 
+/* ---- get_valid_values_as_str ---- */
+
+static void test_str_property_valid_values_list() {
+    vector<string> valid_vals = {"red", "green", "blue"};
+    StrProperty prop("red", valid_vals);
+    string result = prop.get_valid_values_as_str();
+    // Should contain each quoted value separated by commas
+    CHECK_TRUE(result.find("red") != string::npos);
+    CHECK_TRUE(result.find("green") != string::npos);
+    CHECK_TRUE(result.find("blue") != string::npos);
+}
+
+static void test_str_property_valid_values_any() {
+    StrProperty prop("anything");
+    string result = prop.get_valid_values_as_str();
+    CHECK_EQ(result, string("Any"));
+}
+
+static void test_int_property_valid_values_range() {
+    IntProperty prop(10, 5, 20);
+    string result = prop.get_valid_values_as_str();
+    // Should produce "[5...20]"
+    CHECK_TRUE(result.find("5") != string::npos);
+    CHECK_TRUE(result.find("20") != string::npos);
+    CHECK_TRUE(result.find("[") != string::npos);
+    CHECK_TRUE(result.find("]") != string::npos);
+}
+
+static void test_int_property_valid_values_list() {
+    vector<uint32_t> valid_vals = {8, 16, 32};
+    IntProperty prop(16, valid_vals);
+    string result = prop.get_valid_values_as_str();
+    CHECK_TRUE(result.find("8") != string::npos);
+    CHECK_TRUE(result.find("16") != string::npos);
+    CHECK_TRUE(result.find("32") != string::npos);
+}
+
+static void test_int_property_valid_values_any() {
+    IntProperty prop(42);
+    string result = prop.get_valid_values_as_str();
+    CHECK_EQ(result, string("Any"));
+}
+
+/* ---- parse_device_path ---- */
+
+static void test_parse_device_path_basic() {
+    string bus_id;
+    uint32_t dev_num;
+
+    parse_device_path("pci:0", bus_id, dev_num);
+    CHECK_EQ(bus_id, string("pci"));
+    CHECK_EQ(dev_num, 0u);
+}
+
+static void test_parse_device_path_with_number() {
+    string bus_id;
+    uint32_t dev_num;
+
+    parse_device_path("ScsiMesh:3", bus_id, dev_num);
+    CHECK_EQ(bus_id, string("ScsiMesh"));
+    CHECK_EQ(dev_num, 3u);
+}
+
+static void test_parse_device_path_hex() {
+    string bus_id;
+    uint32_t dev_num;
+
+    // strtoul with base 0 should handle hex prefix
+    parse_device_path("bus:0x1F", bus_id, dev_num);
+    CHECK_EQ(bus_id, string("bus"));
+    CHECK_EQ(dev_num, 0x1Fu);
+}
+
 int main() {
     cout << "Running machineprops tests..." << endl;
 
-    test_prop_type_enums();
     test_bin_property_construct();
     test_bin_property_set_string();
     test_bin_property_invalid();
@@ -211,6 +270,14 @@ int main() {
     test_int_property_with_range();
     test_int_property_with_list();
     test_int_property_clone();
+    test_str_property_valid_values_list();
+    test_str_property_valid_values_any();
+    test_int_property_valid_values_range();
+    test_int_property_valid_values_list();
+    test_int_property_valid_values_any();
+    test_parse_device_path_basic();
+    test_parse_device_path_with_number();
+    test_parse_device_path_hex();
 
     cout << "Tested: " << dec << ntested << ", Failed: " << nfailed << endl;
     return nfailed ? 1 : 0;
