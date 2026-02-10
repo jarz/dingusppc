@@ -83,7 +83,7 @@ MEM_CFG_write2, write, 0x18, 4, 0xBB000000, , Overwrite ram_config=0xBB
 MEM_CFG_same, write, 0x18, 4, 0xBB000000, , Write same ram_config=0xBB (no change)
 
 # === Unknown register write (exercises default branch in write switch) ===
-# reg_num 0 = offset 0x00 → not SYSTEM_ID(4)/MEM_CONFIG(6)/GPIO_ENABLE(13)/GPIO_OUT(14)
+# reg_num 0 = offset 0x00, not SYSTEM_ID(4)/MEM_CONFIG(6)/GPIO_ENABLE(13)/GPIO_OUT(14)
 unknown_write_reg0, write, 0x00, 4, 0x12000000, , Write to undefined reg 0
 unknown_write_reg1, write, 0x04, 4, 0x34000000, , Write to undefined reg 1
 unknown_write_reg7, write, 0x1C, 4, 0x56000000, , Write to undefined reg 7

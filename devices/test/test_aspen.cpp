@@ -43,9 +43,9 @@ static void test_aspen_insert_ram_dimm() {
     dev->insert_ram_dimm(3, 16);  // 16MB
     ntested++;
 
-    // Invalid bank_num (out of range)
-    dev->insert_ram_dimm(-1, 4);  // invalid - should be silently ignored
-    dev->insert_ram_dimm(4, 4);   // invalid - should be silently ignored
+    // Tests out-of-range bank_num handling
+    dev->insert_ram_dimm(-1, 4);  // out of range, returns early
+    dev->insert_ram_dimm(4, 4);   // out of range, returns early
     ntested++;
 
     // Unsupported capacity (not a recognized size)
