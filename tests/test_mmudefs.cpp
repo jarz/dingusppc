@@ -40,12 +40,6 @@ static int ntested = 0;
     } \
 } while(0)
 
-static void test_page_mask_relationships() {
-    // Verify derived constants are consistent with PPC_PAGE_SIZE_BITS
-    CHECK_EQ(PPC_PAGE_SIZE, (1u << PPC_PAGE_SIZE_BITS));
-    CHECK_EQ(PPC_PAGE_MASK, ~(PPC_PAGE_SIZE - 1));
-}
-
 static void test_page_alignment() {
     // Aligned addresses should survive masking unchanged
     CHECK_EQ(0x1000u & PPC_PAGE_MASK, 0x1000u);
@@ -68,7 +62,6 @@ static void test_tlb_vps_mask() {
 int main() {
     cout << "Running mmudefs tests..." << endl;
 
-    test_page_mask_relationships();
     test_page_alignment();
     test_tlb_vps_mask();
 

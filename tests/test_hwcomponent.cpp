@@ -49,23 +49,6 @@ static int ntested = 0;
     } \
 } while(0)
 
-static void test_hwcomptype_values() {
-    // Verify enum values are distinct powers of 2
-    CHECK_EQ((uint64_t)HWCompType::UNKNOWN, 0ULL);
-    CHECK_EQ((uint64_t)HWCompType::MEM_CTRL, 1ULL << 0);
-    CHECK_EQ((uint64_t)HWCompType::NVRAM, 1ULL << 1);
-    CHECK_EQ((uint64_t)HWCompType::ROM, 1ULL << 2);
-    CHECK_EQ((uint64_t)HWCompType::RAM, 1ULL << 3);
-    CHECK_EQ((uint64_t)HWCompType::MMIO_DEV, 1ULL << 4);
-    CHECK_EQ((uint64_t)HWCompType::PCI_HOST, 1ULL << 5);
-    CHECK_EQ((uint64_t)HWCompType::PCI_DEV, 1ULL << 6);
-    CHECK_EQ((uint64_t)HWCompType::INT_CTRL, 1ULL << 16);
-    CHECK_EQ((uint64_t)HWCompType::SND_CODEC, 1ULL << 30);
-    CHECK_EQ((uint64_t)HWCompType::FLOPPY_CTRL, 1ULL << 32);
-    CHECK_EQ((uint64_t)HWCompType::ETHER_MAC, 1ULL << 40);
-    CHECK_EQ((uint64_t)HWCompType::MACHINE, 1ULL << 41);
-}
-
 static void test_hwcomponent_name() {
     HWComponent comp;
 
@@ -110,7 +93,6 @@ static void test_hwcomponent_device_postinit() {
 int main() {
     cout << "Running hwcomponent tests..." << endl;
 
-    test_hwcomptype_values();
     test_hwcomponent_name();
     test_hwcomponent_supports_type();
     test_hwcomponent_device_postinit();

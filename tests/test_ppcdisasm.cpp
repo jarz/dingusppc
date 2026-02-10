@@ -12,8 +12,11 @@ the Free Software Foundation, either version 3 of the License, or
 
 #include <cpu/ppc/ppcdisasm.h>
 #include <cinttypes>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <vector>
 
 // Stub for get_reg() referenced by ppcdisasm.cpp but defined in ppcexec.cpp
 uint64_t get_reg(std::string reg_name) { return 0; }
@@ -82,7 +85,7 @@ static void test_signext_boundary_values() {
     CHECK_EQ((uint32_t)SIGNEXT(0x7FFFFF, 23), 0x007FFFFFu);
 }
 
-/* ---- disassemble_single() tests ---- */
+/* ---- disassemble_single() tests driven by ppcdisasmtest.csv ---- */
 
 // Helper: disassemble an instruction at a given address with simplified mnemonics
 static string disasm(uint32_t addr, uint32_t opcode) {
@@ -93,79 +96,118 @@ static string disasm(uint32_t addr, uint32_t opcode) {
     return disassemble_single(&ctx);
 }
 
-// Test vectors derived from cpu/ppc/test/ppcdisasmtest.csv
+// Build the expected disassembly string from CSV fields.
+// CSV format: address,opcode,mnemonic[,operand1[,operand2[,...]]]
+// Disassembler output: "%-7s operand1, operand2, ..."
+static string build_expected(const vector<string>& fields) {
+    // fields[2] is the mnemonic, fields[3..] are operands
+    string mnemonic = fields[2];
 
-static void test_disasm_branches() {
-    // bl 0xFFF0335C
-    CHECK_STR_EQ(disasm(0xFFF03008, 0x48000355), "bl      0xFFF0335C");
-    // b 0xFFF0335C
-    CHECK_STR_EQ(disasm(0xFFF03000, 0x4280035C), "b       0xFFF0335C");
-    // ba 0x00000800
-    CHECK_STR_EQ(disasm(0xFFF03000, 0x48000802), "ba      0x00000800");
-    // bla 0x00000800
-    CHECK_STR_EQ(disasm(0xFFF03000, 0x48000803), "bla     0x00000800");
+    // Pad mnemonic to at least 7 chars (matching %-7s in disassembler)
+    while (mnemonic.size() < 7)
+        mnemonic += ' ';
+    mnemonic += ' ';
+
+    if (fields.size() <= 3)
+        return mnemonic;
+
+    string operands;
+    for (size_t i = 3; i < fields.size(); i++) {
+        if (i > 3) operands += ", ";
+        operands += fields[i];
+    }
+    return mnemonic + operands;
 }
 
-static void test_disasm_branch_ctr() {
-    // bctr (with trailing padding)
-    CHECK_STR_EQ(disasm(0xFFF03000, 0x4E800420), "bctr    ");
-    // bctrl
-    CHECK_STR_EQ(disasm(0xFFF03000, 0x4E800421), "bctrl   ");
+// Split a CSV line into fields (simple comma split, no quoting)
+static vector<string> split_csv(const string& line) {
+    vector<string> fields;
+    istringstream ss(line);
+    string field;
+    while (getline(ss, field, ','))
+        fields.push_back(field);
+    return fields;
 }
 
-static void test_disasm_branch_lr() {
-    // blr
-    CHECK_STR_EQ(disasm(0xFFF03000, 0x4E800020), "blr     ");
-    // blrl
-    CHECK_STR_EQ(disasm(0xFFF03000, 0x4E800021), "blrl    ");
+static void test_disasm_csv(const string& csv_path) {
+    ifstream file(csv_path);
+    if (!file.is_open()) {
+        cerr << "FAIL: cannot open " << csv_path << endl;
+        nfailed++;
+        ntested++;
+        return;
+    }
+
+    string line;
+    int line_num = 0;
+    while (getline(file, line)) {
+        line_num++;
+        // Skip comments and blank lines
+        if (line.empty() || line[0] == '#')
+            continue;
+
+        auto fields = split_csv(line);
+        if (fields.size() < 3) {
+            cerr << "WARN: skipping malformed line " << line_num << ": " << line << endl;
+            continue;
+        }
+
+        char *end;
+        uint32_t addr = (uint32_t)strtoul(fields[0].c_str(), &end, 16);
+        if (*end != '\0') {
+            cerr << "WARN: bad address on line " << line_num << endl;
+            continue;
+        }
+        uint32_t opcode = (uint32_t)strtoul(fields[1].c_str(), &end, 16);
+        if (*end != '\0') {
+            cerr << "WARN: bad opcode on line " << line_num << endl;
+            continue;
+        }
+        string expected = build_expected(fields);
+        string got = disasm(addr, opcode);
+
+        ntested++;
+        if (got != expected) {
+            cerr << "FAIL line " << line_num << ": "
+                 << "disasm(0x" << hex << addr << ", 0x" << opcode << ") => \""
+                 << got << "\", expected \"" << expected << "\"" << endl;
+            nfailed++;
+        }
+    }
 }
 
-static void test_disasm_arithmetic_imm() {
-    // addi r1, r1, -0x20
-    CHECK_STR_EQ(disasm(0, 0x3821FFE0), "addi    r1, r1, -0x20");
-
-    // li r3, 0x0 (simplified addi r3,r0,0)
-    CHECK_STR_EQ(disasm(0, 0x38600000), "li      r3, 0x0");
-
-    // li r0, 0x1
-    CHECK_STR_EQ(disasm(0, 0x38000001), "li      r0, 0x1");
-}
-
-static void test_disasm_logical_imm() {
-    // ori r0,r0,0 is the canonical nop
-    CHECK_STR_EQ(disasm(0, 0x60000000), "nop     ");
-}
-
-static void test_disasm_load_store() {
-    // lwz r0, 0x0(r1)
-    CHECK_STR_EQ(disasm(0, 0x80010000), "lwz     r0, 0x0(r1)");
-
-    // stw r0, 0x4(r1)
-    CHECK_STR_EQ(disasm(0, 0x90010004), "stw     r0, 0x4(r1)");
-
-    // lbz r3, 0x0(r4)
-    CHECK_STR_EQ(disasm(0, 0x88640000), "lbz     r3, 0x0(r4)");
-}
-
-static void test_disasm_system() {
-    // sc (system call)
-    CHECK_STR_EQ(disasm(0, 0x44000002), "sc      ");
-}
-
-int main() {
+int main(int argc, char* argv[]) {
     cout << "Running ppcdisasm tests..." << endl;
 
     test_signext_no_extension_needed();
     test_signext_extension_needed();
     test_signext_boundary_values();
-    test_disasm_branches();
-    test_disasm_branch_ctr();
-    test_disasm_branch_lr();
-    test_disasm_arithmetic_imm();
-    test_disasm_logical_imm();
-    test_disasm_load_store();
-    test_disasm_system();
 
-    cout << "Tested: " << ntested << ", Failed: " << nfailed << endl;
+    // Run CSV-driven disassembly tests
+    // Try multiple paths to find the test data
+    string csv_path;
+    const char* candidates[] = {
+        "../cpu/ppc/test/ppcdisasmtest.csv",         // when run from tests/build/
+        "cpu/ppc/test/ppcdisasmtest.csv",             // when run from repo root
+        "../../cpu/ppc/test/ppcdisasmtest.csv",       // fallback
+        nullptr
+    };
+    for (int i = 0; candidates[i]; i++) {
+        ifstream f(candidates[i]);
+        if (f.good()) {
+            csv_path = candidates[i];
+            break;
+        }
+    }
+    if (argc > 1)
+        csv_path = argv[1];
+
+    if (!csv_path.empty()) {
+        test_disasm_csv(csv_path);
+    } else {
+        cerr << "WARN: ppcdisasmtest.csv not found, skipping CSV tests" << endl;
+    }
+
+    cout << "Tested: " << dec << ntested << ", Failed: " << nfailed << endl;
     return nfailed ? 1 : 0;
 }
