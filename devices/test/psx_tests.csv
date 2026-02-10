@@ -1,0 +1,59 @@
+# PSX Memory Controller register tests
+# Format: test_name, op, offset, size, write_value, expected_read, description
+#
+# op: read, write, write_read (write then immediately read same register), reset
+# offset: hex byte offset (register = offset >> 3)
+# size: access size in bytes (1, 2, or 4)
+# write_value: hex value to write (ignored for reads)
+# expected_read: hex expected return from read (ignored for writes)
+#
+# Default state: sys_id=0x10000000, chip_rev=0, sys_config=PSX_BUS_SPEED_50(3)
+# pages_cfg[5] = {0x88888888, ...}
+# read() uses (offset >> 3) as register number
+# write() uses (offset >> 3) as register number
+
+# === Read defined registers at size=4 (default state) ===
+Sys_Id_default, read, 0x00, 4, , 0x10000000, Sys_Id returns 0x10000000
+Revision_default, read, 0x08, 4, , 0x00000000, Revision returns 0 (old PSX)
+Sys_Config_default, read, 0x10, 4, , 0x00000003, Sys_Config returns PSX_BUS_SPEED_50=3
+
+# === Read defined registers at size=1 ===
+Sys_Id_sz1, read, 0x00, 1, , 0x10000000, Sys_Id at size=1 (no shift applied)
+Revision_sz1, read, 0x08, 1, , 0x00000000, Revision at size=1
+Sys_Config_sz1, read, 0x10, 1, , 0x00000003, Sys_Config at size=1
+
+# === Read undefined/unsupported registers (returns 0) ===
+ROM_Config_read, read, 0x18, 4, , 0x00000000, ROM_Config is write-only
+DRAM_Config_read, read, 0x20, 4, , 0x00000000, DRAM_Config is write-only
+DRAM_Refresh_read, read, 0x28, 4, , 0x00000000, DRAM_Refresh is write-only
+Flash_Config_read, read, 0x30, 4, , 0x00000000, Flash_Config is write-only
+unknown_reg7, read, 0x38, 4, , 0x00000000, Offset 0x38 not defined
+PageMap1_read, read, 0x40, 4, , 0x00000000, Page_Mappings not readable
+PageMap2_read, read, 0x48, 4, , 0x00000000, Page_Mappings not readable
+PageMap3_read, read, 0x50, 4, , 0x00000000, Page_Mappings not readable
+PageMap4_read, read, 0x58, 4, , 0x00000000, Page_Mappings not readable
+PageMap5_read, read, 0x60, 4, , 0x00000000, Page_Mappings not readable
+Bus_Timeout_read, read, 0x68, 4, , 0x00000000, Bus_Timeout not supported for read
+
+# === Sys_Config write/read round-trip ===
+Sys_Config_wr1, write_read, 0x10, 4, 0xDEADBEEF, 0xDEADBEEF, Sys_Config round-trips any 32-bit value
+Sys_Config_wr2, write_read, 0x10, 4, 0x00000000, 0x00000000, Sys_Config round-trips zero
+Sys_Config_wr3, write_read, 0x10, 4, 0xFFFFFFFF, 0xFFFFFFFF, Sys_Config round-trips all-ones
+
+# === Write to read-only registers (Sys_Id and Revision) ===
+Sys_Id_write, write, 0x00, 4, 0xCAFEBABE, , Write to Sys_Id logs warning
+Sys_Id_unchanged, read, 0x00, 4, , 0x10000000, Sys_Id unchanged after write
+Revision_write, write, 0x08, 4, 0x12345678, , Write to Revision logs warning
+Revision_unchanged, read, 0x08, 4, , 0x00000000, Revision unchanged after write
+
+# === Write to write-only config registers (no crash) ===
+ROM_Config_write, write, 0x18, 4, 0x12345678, , Write to ROM_Config
+DRAM_Config_write, write, 0x20, 4, 0xAABBCCDD, , Write to DRAM_Config
+DRAM_Refresh_write, write, 0x28, 4, 0x11223344, , Write to DRAM_Refresh
+Flash_Config_write, write, 0x30, 4, 0x55667788, , Write to Flash_Config
+
+# === Reset device and verify defaults ===
+reset_device, reset, 0x00, 1, , , Re-initialize device
+Sys_Id_after_reset, read, 0x00, 4, , 0x10000000, Sys_Id correct after reset
+Revision_after_reset, read, 0x08, 4, , 0x00000000, Revision correct after reset
+Sys_Config_after_reset, read, 0x10, 4, , 0x00000003, Sys_Config back to default after reset

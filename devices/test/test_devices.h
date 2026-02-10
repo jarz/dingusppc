@@ -60,5 +60,6 @@ inline uint64_t parse_hex64(const std::string& s) {
 void run_hammerhead_tests();
 void run_hmc_tests();
 void run_aspen_tests();
+void run_psx_tests();
 
 #endif // TEST_DEVICES_H

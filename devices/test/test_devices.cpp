@@ -43,6 +43,7 @@ int main() {
     run_hammerhead_tests();
     run_hmc_tests();
     run_aspen_tests();
+    run_psx_tests();
 
     cout << endl << "... completed." << endl;
     cout << "--> Tested: " << dec << ntested << endl;
