@@ -93,6 +93,25 @@ endif()
 add_executable(test_pixconv test_pixconv.cpp)
 target_include_directories(test_pixconv PRIVATE "${DPPC_ROOT}")
 
+add_executable(test_i2cprom test_i2cprom.cpp
+    "${DPPC_ROOT}/devices/common/i2c/i2cprom.cpp"
+    "${DPPC_ROOT}/thirdparty/loguru/loguru.cpp")
+target_include_directories(test_i2cprom PRIVATE
+    "${DPPC_ROOT}"
+    "${DPPC_ROOT}/thirdparty/loguru")
+if (UNIX)
+    target_link_libraries(test_i2cprom PRIVATE ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+endif()
+
+add_executable(test_audioprocessor test_audioprocessor.cpp
+    "${DPPC_ROOT}/thirdparty/loguru/loguru.cpp")
+target_include_directories(test_audioprocessor PRIVATE
+    "${DPPC_ROOT}"
+    "${DPPC_ROOT}/thirdparty/loguru")
+if (UNIX)
+    target_link_libraries(test_audioprocessor PRIVATE ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+endif()
+
 enable_testing()
 add_test(NAME test_bitops COMMAND test_bitops)
 add_test(NAME test_endianswap COMMAND test_endianswap)
@@ -112,3 +131,5 @@ add_test(NAME test_checksums COMMAND test_checksums)
 add_test(NAME test_athens COMMAND test_athens)
 add_test(NAME test_displayid COMMAND test_displayid)
 add_test(NAME test_pixconv COMMAND test_pixconv)
+add_test(NAME test_i2cprom COMMAND test_i2cprom)
+add_test(NAME test_audioprocessor COMMAND test_audioprocessor)
