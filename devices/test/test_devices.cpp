@@ -44,6 +44,7 @@ int main() {
     run_hmc_tests();
     run_aspen_tests();
     run_psx_tests();
+    run_machineid_tests();
 
     cout << endl << "... completed." << endl;
     cout << "--> Tested: " << dec << ntested << endl;

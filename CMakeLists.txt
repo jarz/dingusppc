@@ -263,6 +263,8 @@ if (DPPC_BUILD_DEVICE_TESTS)
         "${PROJECT_SOURCE_DIR}/devices/test/hmc_tests.csv"
         "${PROJECT_SOURCE_DIR}/devices/test/aspen_tests.csv"
         "${PROJECT_SOURCE_DIR}/devices/test/psx_tests.csv"
+        "${PROJECT_SOURCE_DIR}/devices/test/machineid_tests.csv"
+        "${PROJECT_SOURCE_DIR}/devices/test/gossamerid_tests.csv"
         $<TARGET_FILE_DIR:testdevices>)
 endif()
 

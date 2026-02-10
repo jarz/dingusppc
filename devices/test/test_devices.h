@@ -61,5 +61,6 @@ void run_hammerhead_tests();
 void run_hmc_tests();
 void run_aspen_tests();
 void run_psx_tests();
+void run_machineid_tests();
 
 #endif // TEST_DEVICES_H
