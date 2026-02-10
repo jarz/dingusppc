@@ -283,3 +283,68 @@ jobs:
         name: DingusPPC-${{ matrix.upload_suffix }}
         path: ${{github.workspace}}/build/bin
         retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer:
+          - name: ubsan
+            type: undefined
+            c_flags: "-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
+            cxx_flags: "-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
+            linker_flags: "-fsanitize=undefined"
+            env_vars: ""
+          - name: asan
+            type: address
+            c_flags: "-fsanitize=address -fno-omit-frame-pointer -g"
+            cxx_flags: "-fsanitize=address -fno-omit-frame-pointer -g"
+            linker_flags: "-fsanitize=address"
+            env_vars: "ASAN_OPTIONS=detect_leaks=0"
+          - name: tsan
+            type: thread
+            c_flags: "-fsanitize=thread -fno-omit-frame-pointer -g"
+            cxx_flags: "-fsanitize=thread -fno-omit-frame-pointer -g"
+            linker_flags: "-fsanitize=thread"
+            env_vars: ""
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -y -qq
+        sudo apt-get install -y -qq libsdl2-dev ninja-build
+    - name: Configure CMake with ${{ matrix.sanitizer.name }}
+      run: >
+        cmake -S . -B build -GNinja
+        -DCMAKE_BUILD_TYPE=Debug
+        -DDPPC_68K_DEBUGGER=ON
+        -DDPPC_BUILD_PPC_TESTS=ON
+        -DCMAKE_C_FLAGS="${{ matrix.sanitizer.c_flags }}"
+        -DCMAKE_CXX_FLAGS="${{ matrix.sanitizer.cxx_flags }}"
+        -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.sanitizer.linker_flags }}"
+    - name: Build
+      run: cmake --build build --parallel
+    - name: Test under ${{ matrix.sanitizer.name }}
+      working-directory: build
+      env:
+        SANITIZER_ENV: ${{ matrix.sanitizer.env_vars }}
+      run: |
+        if [ -n "$SANITIZER_ENV" ]; then
+          export $SANITIZER_ENV
+        fi
+        ctest --output-on-failure
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: logs-${{ matrix.sanitizer.name }}
+        path: |
+          build/Testing/Temporary/LastTest.log
+          build/CMakeFiles/CMakeOutput.log
+          build/CMakeFiles/CMakeError.log
+        if-no-files-found: ignore
+        retention-days: 7
