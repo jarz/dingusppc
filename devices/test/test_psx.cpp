@@ -23,6 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "test_devices.h"
 #include <devices/memctrl/psx.h>
+#include <devices/memctrl/memctrlbase.h>
 
 #include <fstream>
 #include <iostream>
@@ -30,8 +31,47 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using namespace std;
 
+static void test_psx_insert_ram_dimm() {
+    auto dev = make_unique<PsxCtrl>(1, "PSX-PCI1");
+
+    // Valid capacities: 0, 4MB, 8MB, 16MB, 32MB, 64MB (split)
+    dev->insert_ram_dimm(0, 0);                // zero = no-op
+    dev->insert_ram_dimm(0, DRAM_CAP_4MB);     // 4MB
+    dev->insert_ram_dimm(1, DRAM_CAP_8MB);     // 8MB
+    dev->insert_ram_dimm(2, DRAM_CAP_16MB);    // 16MB
+    dev->insert_ram_dimm(3, DRAM_CAP_32MB);    // 32MB
+    ntested++;
+
+    // 64MB gets split across slot+0 and slot+1
+    auto dev2 = make_unique<PsxCtrl>(1, "PSX-PCI1");
+    dev2->insert_ram_dimm(0, DRAM_CAP_64MB);
+    ntested++;
+
+    // map_phys_ram exercises page mapping logic
+    dev2->map_phys_ram();
+    ntested++;
+}
+
+static void test_psx_page_mappings_write() {
+    // Exercise the Page_Mappings write path via the device's write() method
+    auto dev = make_unique<PsxCtrl>(1, "PSX-PCI1");
+    dev->insert_ram_dimm(0, DRAM_CAP_32MB);
+
+    // Writing to Page_Mappings_1 (offset 0x40, reg = 0x40>>3 = 8)
+    dev->write(0, 0x40, 0x00000000, 4);
+    ntested++;
+
+    // Writing to Page_Mappings_2 (offset 0x48, reg = 9)
+    dev->write(0, 0x48, 0x11111111, 4);
+    ntested++;
+}
+
 void run_psx_tests() {
     cout << "Running PSX tests..." << endl;
+
+    // Direct C++ tests for insert_ram_dimm / map_phys_ram / Page_Mappings
+    test_psx_insert_ram_dimm();
+    test_psx_page_mappings_write();
 
     ifstream csv("psx_tests.csv");
     if (!csv.is_open()) {

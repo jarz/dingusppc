@@ -23,6 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "test_devices.h"
 #include <devices/memctrl/aspen.h>
+#include <devices/memctrl/memctrlbase.h>
 
 #include <fstream>
 #include <iostream>
@@ -30,8 +31,41 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using namespace std;
 
+static void test_aspen_insert_ram_dimm() {
+    auto dev = make_unique<AspenCtrl>();
+
+    // insert_ram_dimm takes (bank_num, capacity_in_MB) where capacity
+    // is shifted left by 20 internally. Valid bank_num: 0-3.
+    // Valid resulting sizes: DRAM_CAP_1MB, _4MB, _8MB, _16MB
+    dev->insert_ram_dimm(0, 1);   // 1MB
+    dev->insert_ram_dimm(1, 4);   // 4MB
+    dev->insert_ram_dimm(2, 8);   // 8MB
+    dev->insert_ram_dimm(3, 16);  // 16MB
+    ntested++;
+
+    // Invalid bank_num (out of range)
+    dev->insert_ram_dimm(-1, 4);  // invalid - should be silently ignored
+    dev->insert_ram_dimm(4, 4);   // invalid - should be silently ignored
+    ntested++;
+
+    // Unsupported capacity (not a recognized size)
+    dev->insert_ram_dimm(0, 3);   // 3MB → default: break (no-op)
+    ntested++;
+
+    // device_postinit() calls map_phys_ram()
+    int ret = dev->device_postinit();
+    ntested++;
+    if (ret != 0) {
+        cout << "  FAIL [aspen_postinit]: returned " << ret << endl;
+        nfailed++;
+    }
+}
+
 void run_aspen_tests() {
     cout << "Running Aspen tests..." << endl;
+
+    // Direct C++ tests for insert_ram_dimm / map_phys_ram
+    test_aspen_insert_ram_dimm();
 
     ifstream csv("aspen_tests.csv");
     if (!csv.is_open()) {

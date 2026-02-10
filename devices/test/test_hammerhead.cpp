@@ -23,6 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "test_devices.h"
 #include <devices/memctrl/hammerhead.h>
+#include <devices/memctrl/memctrlbase.h>
 
 #include <fstream>
 #include <iostream>
@@ -30,8 +31,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using namespace std;
 
+static void test_hammerhead_insert_ram_dimm() {
+    // Exercise insert_ram_dimm() with various capacities
+    auto dev = make_unique<HammerheadCtrl>();
+
+    // Valid capacities: 0, 2MB, 4MB, 8MB, 16MB, 32MB, 64MB
+    dev->insert_ram_dimm(0, 0);                // zero = no-op
+    dev->insert_ram_dimm(0, DRAM_CAP_2MB);     // 2MB
+    dev->insert_ram_dimm(1, DRAM_CAP_4MB);     // 4MB
+    dev->insert_ram_dimm(2, DRAM_CAP_8MB);     // 8MB
+    dev->insert_ram_dimm(3, DRAM_CAP_16MB);    // 16MB
+    dev->insert_ram_dimm(4, DRAM_CAP_32MB);    // 32MB
+    dev->insert_ram_dimm(5, DRAM_CAP_64MB);    // 64MB
+    dev->insert_ram_dimm(6, DRAM_CAP_128MB);   // 128MB (split into 2x64MB)
+    ntested++;
+
+    // Verify map_phys_ram() runs without error
+    dev->map_phys_ram();
+    ntested++;
+}
+
 void run_hammerhead_tests() {
     cout << "Running Hammerhead tests..." << endl;
+
+    // Direct C++ tests for insert_ram_dimm / map_phys_ram
+    test_hammerhead_insert_ram_dimm();
 
     ifstream csv("hammerhead_tests.csv");
     if (!csv.is_open()) {

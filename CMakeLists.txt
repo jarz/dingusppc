@@ -266,6 +266,57 @@ if (DPPC_BUILD_DEVICE_TESTS)
         "${PROJECT_SOURCE_DIR}/devices/test/machineid_tests.csv"
         "${PROJECT_SOURCE_DIR}/devices/test/gossamerid_tests.csv"
         $<TARGET_FILE_DIR:testdevices>)
+
+    # Coverage target: build with -DDPPC_DEVICE_TESTS_COVERAGE=ON
+    option(DPPC_DEVICE_TESTS_COVERAGE "Enable code coverage for device tests" OFF)
+    if (DPPC_DEVICE_TESTS_COVERAGE)
+        find_program(LCOV lcov)
+        find_program(GENHTML genhtml)
+        if (LCOV AND GENHTML)
+            target_compile_options(testdevices PRIVATE --coverage)
+            target_link_options(testdevices PRIVATE --coverage)
+            # Also need coverage on the object libraries we link
+            target_compile_options(devices PRIVATE --coverage)
+            target_link_options(devices PRIVATE --coverage)
+
+            add_custom_target(coverage-devices
+                # Reset counters
+                COMMAND ${LCOV} --zerocounters --directory ${CMAKE_BINARY_DIR}
+                    --ignore-errors mismatch
+                # Run tests
+                COMMAND $<TARGET_FILE:testdevices>
+                # Capture
+                COMMAND ${LCOV} --capture --directory ${CMAKE_BINARY_DIR}
+                    --output-file ${CMAKE_BINARY_DIR}/coverage_raw.info
+                    --rc branch_coverage=1
+                    --ignore-errors mismatch
+                # Extract only the tested device source files
+                COMMAND ${LCOV}
+                    --extract ${CMAKE_BINARY_DIR}/coverage_raw.info
+                    '*/devices/memctrl/hammerhead.cpp'
+                    '*/devices/memctrl/hmc.cpp'
+                    '*/devices/memctrl/aspen.cpp'
+                    '*/devices/memctrl/psx.cpp'
+                    '*/devices/common/machineid.h'
+                    --output-file ${CMAKE_BINARY_DIR}/coverage_devices.info
+                    --rc branch_coverage=1
+                    --ignore-errors mismatch
+                # Generate HTML report
+                COMMAND ${GENHTML} ${CMAKE_BINARY_DIR}/coverage_devices.info
+                    --branch-coverage
+                    --output-directory ${CMAKE_BINARY_DIR}/coverage_html
+                    --ignore-errors mismatch
+                # Print summary
+                COMMAND ${LCOV} --list ${CMAKE_BINARY_DIR}/coverage_devices.info
+                    --rc branch_coverage=1
+                DEPENDS testdevices
+                WORKING_DIRECTORY $<TARGET_FILE_DIR:testdevices>
+                COMMENT "Running device tests and generating coverage report..."
+            )
+        else()
+            message(WARNING "lcov/genhtml not found, coverage-devices target disabled")
+        endif()
+    endif()
 endif()
 
 install (TARGETS dingusppc DESTINATION ${PROJECT_SOURCE_DIR}/build)
