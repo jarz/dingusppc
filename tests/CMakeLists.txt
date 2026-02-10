@@ -112,6 +112,17 @@ if (UNIX)
     target_link_libraries(test_audioprocessor PRIVATE ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
+add_executable(test_pcidevice test_pcidevice.cpp
+    "${DPPC_ROOT}/devices/common/pci/pcibase.cpp"
+    "${DPPC_ROOT}/devices/common/pci/pcidevice.cpp"
+    "${DPPC_ROOT}/thirdparty/loguru/loguru.cpp")
+target_include_directories(test_pcidevice PRIVATE
+    "${DPPC_ROOT}"
+    "${DPPC_ROOT}/thirdparty/loguru")
+if (UNIX)
+    target_link_libraries(test_pcidevice PRIVATE ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+endif()
+
 enable_testing()
 add_test(NAME test_bitops COMMAND test_bitops)
 add_test(NAME test_endianswap COMMAND test_endianswap)
@@ -133,3 +144,4 @@ add_test(NAME test_displayid COMMAND test_displayid)
 add_test(NAME test_pixconv COMMAND test_pixconv)
 add_test(NAME test_i2cprom COMMAND test_i2cprom)
 add_test(NAME test_audioprocessor COMMAND test_audioprocessor)
+add_test(NAME test_pcidevice COMMAND test_pcidevice)
