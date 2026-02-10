@@ -298,6 +298,9 @@ if (DPPC_BUILD_DEVICE_TESTS)
                     '*/devices/memctrl/aspen.cpp'
                     '*/devices/memctrl/psx.cpp'
                     '*/devices/common/machineid.h'
+                    '*/devices/common/clockgen/athens.cpp'
+                    '*/devices/common/i2c/i2cprom.cpp'
+                    '*/devices/memctrl/spdram.h'
                     --output-file ${CMAKE_BINARY_DIR}/coverage_devices.info
                     --rc branch_coverage=1
                     --ignore-errors mismatch

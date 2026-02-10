@@ -62,5 +62,9 @@ void run_hmc_tests();
 void run_aspen_tests();
 void run_psx_tests();
 void run_machineid_tests();
+void run_athens_tests();
+void run_i2cprom_tests();
+void run_spdsdram_tests();
+void run_boardreg_tests();
 
 #endif // TEST_DEVICES_H

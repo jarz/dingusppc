@@ -45,6 +45,10 @@ int main() {
     run_aspen_tests();
     run_psx_tests();
     run_machineid_tests();
+    run_athens_tests();
+    run_i2cprom_tests();
+    run_spdsdram_tests();
+    run_boardreg_tests();
 
     cout << endl << "... completed." << endl;
     cout << "--> Tested: " << dec << ntested << endl;
