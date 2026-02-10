@@ -283,3 +283,40 @@ jobs:
         name: DingusPPC-${{ matrix.upload_suffix }}
         path: ${{github.workspace}}/build/bin
         retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
+
+  ubsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -y -qq
+        sudo apt-get install -y -qq libsdl2-dev ninja-build
+    - name: Configure CMake with UBSan
+      run: >
+        cmake -S . -B build -GNinja
+        -DCMAKE_BUILD_TYPE=Debug
+        -DDPPC_68K_DEBUGGER=ON
+        -DDPPC_BUILD_PPC_TESTS=ON
+        -DCMAKE_C_FLAGS="-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
+        -DCMAKE_CXX_FLAGS="-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
+        -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=undefined"
+    - name: Build
+      run: cmake --build build --parallel
+    - name: Test under UBSan
+      working-directory: build
+      run: ctest --output-on-failure
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: logs-ubsan
+        path: |
+          build/Testing/Temporary/LastTest.log
+          build/CMakeFiles/CMakeOutput.log
+          build/CMakeFiles/CMakeError.log
+        if-no-files-found: ignore
+        retention-days: 7
