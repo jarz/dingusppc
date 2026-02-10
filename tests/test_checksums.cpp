@@ -44,9 +44,8 @@ static int ntested = 0;
     } \
 } while(0)
 
-// Forward-declare the function under test.
-// The implementation is linked from nubuscrc_impl.cpp (extracted from nubusutils.cpp).
-extern uint32_t calculate_rom_crc(uint8_t *data_ptr, int length);
+// Include the real implementation (inline in the header).
+#include <devices/common/nubus/nubusutils.h>
 
 /* ---- calculate_rom_crc tests ---- */
 

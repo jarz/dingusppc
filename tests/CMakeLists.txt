@@ -66,7 +66,7 @@ target_include_directories(test_pcicfglog PRIVATE "${DPPC_ROOT}")
 add_executable(test_banditdefs test_banditdefs.cpp)
 target_include_directories(test_banditdefs PRIVATE "${DPPC_ROOT}")
 
-add_executable(test_checksums test_checksums.cpp nubuscrc_impl.cpp)
+add_executable(test_checksums test_checksums.cpp)
 target_include_directories(test_checksums PRIVATE "${DPPC_ROOT}")
 
 add_executable(test_athens test_athens.cpp
