@@ -49,8 +49,13 @@ if (EMSCRIPTEN)
     add_compile_definitions(LOGURU_STACKTRACES=0)
 endif()
 
-option(DPPC_BUILD_PPC_TESTS  "Build PowerPC tests" OFF)
-option(DPPC_BUILD_BENCHMARKS "Build benchmarking programs" OFF)
+option(DPPC_BUILD_PPC_TESTS   "Build PowerPC tests" OFF)
+option(DPPC_BUILD_BENCHMARKS  "Build benchmarking programs" OFF)
+option(DPPC_BUILD_UNIT_TESTS  "Build unit tests" OFF)
+
+if (DPPC_BUILD_UNIT_TESTS)
+    add_subdirectory(tests)
+endif()
 
 option(DPPC_68K_DEBUGGER   "Enable 68k debugging" OFF)
 
