@@ -49,8 +49,9 @@ if (EMSCRIPTEN)
     add_compile_definitions(LOGURU_STACKTRACES=0)
 endif()
 
-option(DPPC_BUILD_PPC_TESTS  "Build PowerPC tests" OFF)
-option(DPPC_BUILD_BENCHMARKS "Build benchmarking programs" OFF)
+option(DPPC_BUILD_PPC_TESTS    "Build PowerPC tests" OFF)
+option(DPPC_BUILD_DEVICE_TESTS "Build device regression tests" OFF)
+option(DPPC_BUILD_BENCHMARKS   "Build benchmarking programs" OFF)
 
 option(DPPC_68K_DEBUGGER   "Enable 68k debugging" OFF)
 
@@ -229,6 +230,39 @@ if (DPPC_BUILD_PPC_TESTS)
         "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcfloattests.csv"
         "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcdisasmtest.csv"
         $<TARGET_FILE_DIR:${PROJECT_NAME}>)
+endif()
+
+if (DPPC_BUILD_DEVICE_TESTS)
+    file(GLOB DEVICE_TEST_SOURCES "${PROJECT_SOURCE_DIR}/devices/test/*.cpp")
+
+    add_executable(testdevices ${DEVICE_TEST_SOURCES}
+                                               $<TARGET_OBJECTS:core>
+                                               $<TARGET_OBJECTS:cpu_ppc>
+                                               $<TARGET_OBJECTS:debugger>
+                                               $<TARGET_OBJECTS:devices>
+                                               $<TARGET_OBJECTS:machines>
+                                               $<TARGET_OBJECTS:utils>
+                                               $<TARGET_OBJECTS:loguru>)
+
+    if (WIN32)
+        target_link_libraries(testdevices PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(testdevices PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(testdevices PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(testdevices PRIVATE capstone)
+    endif()
+
+    add_custom_command(
+        TARGET testdevices POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+        "${PROJECT_SOURCE_DIR}/devices/test/hammerhead_tests.csv"
+        "${PROJECT_SOURCE_DIR}/devices/test/hmc_tests.csv"
+        "${PROJECT_SOURCE_DIR}/devices/test/aspen_tests.csv"
+        $<TARGET_FILE_DIR:testdevices>)
 endif()
 
 install (TARGETS dingusppc DESTINATION ${PROJECT_SOURCE_DIR}/build)

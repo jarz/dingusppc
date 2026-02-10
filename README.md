@@ -105,6 +105,17 @@ cmake -DCMAKE_BUILD_TYPE=Release -DDPPC_BUILD_PPC_TESTS=True ..
 make testppc
 ```
 
+### Device Regression Tests
+
+DingusPPC also includes regression tests for verifying emulated hardware device
+behavior. To build:
+```
+mkdir build
+cd build
+cmake -DCMAKE_BUILD_TYPE=Release -DDPPC_BUILD_DEVICE_TESTS=True ..
+make testdevices
+```
+
 ## Intended Minimum Requirements
 
 - Windows 7 or newer (64-bit), Linux 4.4 or newer, Mac OS X 10.9 or newer (64-bit)

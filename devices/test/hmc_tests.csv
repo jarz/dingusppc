@@ -1,0 +1,84 @@
+# HMC (Highspeed Memory Controller) register tests
+# Format: op, offset, value, expected, description
+#
+# op: write_bit (write to offset 0), read_bit (read from offset 0),
+#     reset_pos (write to offset 8), check_ctrl_reg (verify full control register)
+# offset: ignored for check_ctrl_reg and reset_pos
+# value: bit value to write (0 or 1), ignored for reads
+# expected: expected read result or expected ctrl_reg value
+#
+# Default state: ctrl_reg=0, bit_pos=0, bank_config=BANK_CFG_128MB(0)
+# read(offset=0) returns !!(ctrl_reg & (1ULL << bit_pos++))
+# write(offset=0) sets/clears bit at bit_pos++; wraps at 35
+# write(offset=8) resets bit_pos to 0
+
+# === Verify default state: all bits read as 0 ===
+check_ctrl_reg, 0, 0, 0x0000000000, Default ctrl_reg is 0
+read_default_bit0, read_bit, 0, , 0, Default bit 0 is 0
+read_default_bit1, read_bit, 0, , 0, Default bit 1 is 0
+read_default_bit2, read_bit, 0, , 0, Default bit 2 is 0
+read_default_bit3, read_bit, 0, , 0, Default bit 3 is 0
+
+# === Reset position and write a simple pattern ===
+reset_position, reset_pos, 8, , , Reset bit_pos to 0
+write_bit0_1, write_bit, 0, 1, , Set bit 0
+write_bit1_1, write_bit, 0, 1, , Set bit 1
+write_bit2_0, write_bit, 0, 0, , Clear bit 2
+write_bit3_1, write_bit, 0, 1, , Set bit 3
+check_pattern_0B, check_ctrl_reg, 0, 0, 0x000000000B, ctrl_reg=0xB (bits 0,1,3 set)
+
+# === Reset position and read back the pattern ===
+reset_pos_readback, reset_pos, 8, , , Reset bit_pos to 0
+read_bit0, read_bit, 0, , 1, Bit 0 is set
+read_bit1, read_bit, 0, , 1, Bit 1 is set
+read_bit2, read_bit, 0, , 0, Bit 2 is clear
+read_bit3, read_bit, 0, , 1, Bit 3 is set
+read_bit4, read_bit, 0, , 0, Bit 4 is still 0
+
+# === Write all 35 bits and verify wrapping ===
+reset_pos_full, reset_pos, 8, , , Reset bit_pos to 0
+# Write 35 bits: all ones
+write_all_1_b00, write_bit, 0, 1, , Set bit 0
+write_all_1_b01, write_bit, 0, 1, , Set bit 1
+write_all_1_b02, write_bit, 0, 1, , Set bit 2
+write_all_1_b03, write_bit, 0, 1, , Set bit 3
+write_all_1_b04, write_bit, 0, 1, , Set bit 4
+write_all_1_b05, write_bit, 0, 1, , Set bit 5
+write_all_1_b06, write_bit, 0, 1, , Set bit 6
+write_all_1_b07, write_bit, 0, 1, , Set bit 7
+write_all_1_b08, write_bit, 0, 1, , Set bit 8
+write_all_1_b09, write_bit, 0, 1, , Set bit 9
+write_all_1_b10, write_bit, 0, 1, , Set bit 10
+write_all_1_b11, write_bit, 0, 1, , Set bit 11
+write_all_1_b12, write_bit, 0, 1, , Set bit 12
+write_all_1_b13, write_bit, 0, 1, , Set bit 13
+write_all_1_b14, write_bit, 0, 1, , Set bit 14
+write_all_1_b15, write_bit, 0, 1, , Set bit 15
+write_all_1_b16, write_bit, 0, 1, , Set bit 16
+write_all_1_b17, write_bit, 0, 1, , Set bit 17
+write_all_1_b18, write_bit, 0, 1, , Set bit 18
+write_all_1_b19, write_bit, 0, 1, , Set bit 19
+write_all_1_b20, write_bit, 0, 1, , Set bit 20
+write_all_1_b21, write_bit, 0, 1, , Set bit 21
+write_all_1_b22, write_bit, 0, 1, , Set bit 22
+write_all_1_b23, write_bit, 0, 1, , Set bit 23
+write_all_1_b24, write_bit, 0, 1, , Set bit 24
+write_all_1_b25, write_bit, 0, 1, , Set bit 25
+write_all_1_b26, write_bit, 0, 1, , Set bit 26
+write_all_1_b27, write_bit, 0, 1, , Set bit 27
+write_all_1_b28, write_bit, 0, 1, , Set bit 28
+write_all_1_b29, write_bit, 0, 1, , Set bit 29
+write_all_1_b30, write_bit, 0, 1, , Set bit 30
+write_all_1_b31, write_bit, 0, 1, , Set bit 31
+write_all_1_b32, write_bit, 0, 1, , Set bit 32
+write_all_1_b33, write_bit, 0, 1, , Set bit 33
+write_all_1_b34, write_bit, 0, 1, , Set bit 34 (wraps bit_pos to 0)
+check_all_ones, check_ctrl_reg, 0, 0, 0x07FFFFFFFF, ctrl_reg=(1<<35)-1=0x7FFFFFFFF
+
+# === Verify bit_pos wrapped to 0 after 35 writes; read back first bits ===
+read_wrapped_b0, read_bit, 0, , 1, After wrap bit 0 is 1
+read_wrapped_b1, read_bit, 0, , 1, After wrap bit 1 is 1
+
+# === Read from non-zero offset returns 0 ===
+reset_pos_nz, reset_pos, 8, , , Reset bit_pos to 0
+read_offset4, read_bit, 4, , 0, Read from non-zero offset returns 0
