@@ -194,6 +194,9 @@ if (DPPC_BUILD_PPC_TESTS)
     if (DPPC_68K_DEBUGGER)
         target_link_libraries(testppc PRIVATE capstone)
     endif()
+
+    enable_testing()
+    add_test(NAME testppc COMMAND testppc WORKING_DIRECTORY $<TARGET_FILE_DIR:testppc>)
 endif()
 
 if (DPPC_BUILD_BENCHMARKS)
