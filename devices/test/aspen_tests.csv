@@ -1,0 +1,92 @@
+# Aspen Memory Controller register tests
+# Format: test_name, op, offset, size, write_value, expected_read, description
+#
+# op: read, write, write_read (write then immediately read same register), reset
+# offset: hex byte offset (register = (offset >> 2) & 0x1F)
+# size: access size in bytes (1, 2, or 4)
+# write_value: hex value to write (ignored for reads)
+# expected_read: hex expected return from read (ignored for writes)
+#
+# Default state: gpio_enable=0, ram_config=0xAA
+# Aspen read() does NOT shift by access size — returns full 32-bit register values
+# Aspen write() extracts value >> 24 for GPIO_ENABLE and MEM_CONFIG
+
+# === Read defined registers at size=4 (default state) ===
+SYSTEM_ID_sz4, read, 0x10, 4, , 0x40010000, SYSTEM_ID=0x40010000
+CHIP_REV_sz4, read, 0x14, 4, , 0x01000000, CHIP_REV=ASPEN_REV_1
+GPIO_IN_sz4, read, 0x30, 4, , 0x00000000, GPIO_IN=0
+GPIO_ENABLE_sz4, read, 0x34, 4, , 0x00000000, GPIO_ENABLE=(0<<24)=0
+GPIO_OUT_sz4, read, 0x38, 4, , 0x00000000, GPIO_OUT=0
+
+# === Read defined registers at size=1 ===
+SYSTEM_ID_sz1, read, 0x10, 1, , 0x40010000, SYSTEM_ID is full 32-bit value
+CHIP_REV_sz1, read, 0x14, 1, , 0x01000000, CHIP_REV at size=1
+GPIO_IN_sz1, read, 0x30, 1, , 0x00000000, GPIO_IN at size=1
+
+# === Read undefined/unknown registers ===
+unknown_reg0, read, 0x00, 4, , 0x00000000, Reg 0 not defined - returns 0
+unknown_reg1, read, 0x04, 4, , 0x00000000, Reg 1 not defined - returns 0
+unknown_reg7, read, 0x1C, 4, , 0x00000000, Reg 7 not defined - returns 0
+unknown_reg31, read, 0x7C, 4, , 0x00000000, Reg 31 not defined - returns 0
+
+# === GPIO_ENABLE write/read round-trip ===
+GPIO_EN_write, write, 0x34, 4, 0x5A000000, , Write gpio_enable=0x5A
+GPIO_EN_readback, read, 0x34, 4, , 0x5A000000, Read back gpio_enable<<24=0x5A000000
+GPIO_EN_write2, write, 0x34, 4, 0xFF000000, , Write gpio_enable=0xFF
+GPIO_EN_readback2, read, 0x34, 4, , 0xFF000000, Read back gpio_enable<<24
+GPIO_EN_write0, write, 0x34, 4, 0x00000000, , Write gpio_enable=0x00
+GPIO_EN_readback0, read, 0x34, 4, , 0x00000000, Read back 0
+
+# === GPIO_ENABLE write_read shorthand ===
+GPIO_EN_wr_rd, write_read, 0x34, 4, 0xAB000000, 0xAB000000, Write and read gpio_enable
+
+# === MEM_CONFIG write (write-only from read perspective) ===
+MEM_CFG_write, write, 0x18, 4, 0x55000000, , Write ram_config=0x55
+
+# === SYSTEM_ID write is ignored (read-only) ===
+SYS_ID_write, write, 0x10, 4, 0xDEADBEEF, , Write to SYSTEM_ID (ignored)
+SYS_ID_unchanged, read, 0x10, 4, , 0x40010000, SYSTEM_ID unchanged after write
+
+# === GPIO_OUT write (no readback - always returns 0) ===
+GPIO_OUT_write, write, 0x38, 4, 0x42000000, , Write to GPIO_OUT
+GPIO_OUT_still_zero, read, 0x38, 4, , 0x00000000, GPIO_OUT still reads 0
+
+# === Reset device and verify defaults ===
+reset_device, reset, 0x00, 1, , , Re-initialize device
+GPIO_EN_after_reset, read, 0x34, 4, , 0x00000000, gpio_enable back to 0
+SYS_ID_after_reset, read, 0x10, 4, , 0x40010000, SYSTEM_ID still correct
+CHIP_REV_after_reset, read, 0x14, 4, , 0x01000000, CHIP_REV still correct
+
+# === Register aliasing via offset masking: (offset>>2) & 0x1F ===
+# offset 0x90 → reg_num = (0x90>>2) & 0x1F = 0x24 & 0x1F = 4 = SYSTEM_ID
+SYS_ID_alias, read, 0x90, 4, , 0x40010000, SYSTEM_ID aliased at offset 0x90
+# offset 0x94 → reg_num = (0x94>>2) & 0x1F = 0x25 & 0x1F = 5 = CHIP_REV
+CHIP_REV_alias, read, 0x94, 4, , 0x01000000, CHIP_REV aliased at offset 0x94
+
+# === GPIO_ENABLE overwrite ===
+GPIO_EN_wr_first, write, 0x34, 4, 0x11000000, , Write gpio_enable=0x11
+GPIO_EN_wr_first_read, read, 0x34, 4, , 0x11000000, Verify first value
+GPIO_EN_wr_second, write, 0x34, 4, 0x22000000, , Overwrite gpio_enable=0x22
+GPIO_EN_wr_second_read, read, 0x34, 4, , 0x22000000, Second write replaced first
+
+# === GPIO_ENABLE aliased write/read via offset 0xB4 ===
+# offset 0xB4 → reg_num = (0xB4>>2) & 0x1F = 0x2D & 0x1F = 13 = GPIO_ENABLE
+GPIO_EN_alias_write, write, 0xB4, 4, 0x77000000, , Write gpio_enable via aliased offset
+GPIO_EN_alias_read, read, 0x34, 4, , 0x77000000, Read back at canonical offset
+GPIO_EN_alias_read2, read, 0xB4, 4, , 0x77000000, Read back at aliased offset
+
+# === MEM_CONFIG double write (no crash) ===
+MEM_CFG_write1, write, 0x18, 4, 0x55000000, , Write ram_config=0x55
+MEM_CFG_write2, write, 0x18, 4, 0xBB000000, , Overwrite ram_config=0xBB
+
+# === MEM_CONFIG same-value write (exercises no-change branch) ===
+MEM_CFG_same, write, 0x18, 4, 0xBB000000, , Write same ram_config=0xBB (no change)
+
+# === Unknown register write (exercises default branch in write switch) ===
+# reg_num 0 = offset 0x00, not SYSTEM_ID(4)/MEM_CONFIG(6)/GPIO_ENABLE(13)/GPIO_OUT(14)
+unknown_write_reg0, write, 0x00, 4, 0x12000000, , Write to undefined reg 0
+unknown_write_reg1, write, 0x04, 4, 0x34000000, , Write to undefined reg 1
+unknown_write_reg7, write, 0x1C, 4, 0x56000000, , Write to undefined reg 7
+
+# === Verify SYSTEM_ID unaffected by other register writes ===
+SYS_ID_after_writes, read, 0x10, 4, , 0x40010000, SYSTEM_ID still correct after writes

@@ -1,0 +1,32 @@
+# GossamerID register tests (Beige G3, id=0x0030)
+# Format: test_name, op, offset, size, write_value, expected_read, description
+#
+# GossamerID(0x0030):
+# read(rgn_start, offset, size):
+#   offset=4 && size=2 -> id
+#   otherwise -> 0
+# write() is a no-op
+
+# === Read at the correct offset and size ===
+correct_read, read, 0x04, 2, , 0x00000030, Returns id at offset=4 size=2
+
+# === Reads at wrong offset or size return 0 ===
+wrong_offset_0, read, 0x00, 2, , 0x00000000, Wrong offset returns 0
+wrong_offset_8, read, 0x08, 2, , 0x00000000, Wrong offset returns 0
+wrong_size_1, read, 0x04, 1, , 0x00000000, Wrong size returns 0
+wrong_size_4, read, 0x04, 4, , 0x00000000, Wrong size returns 0
+zero_zero, read, 0x00, 4, , 0x00000000, offset=0 size=4 returns 0
+
+# === Write does nothing (read-only register) ===
+write_noop, write, 0x04, 2, 0xFFFF, , Write is no-op
+read_after_write, read, 0x04, 2, , 0x00000030, Unchanged after write
+
+# === Boundary offset conditions ===
+boundary_off3_sz2, read, 0x03, 2, , 0x00000000, offset=3 size=2 (adjacent to valid) returns 0
+boundary_off5_sz2, read, 0x05, 2, , 0x00000000, offset=5 size=2 (one past valid) returns 0
+boundary_off4_sz3, read, 0x04, 3, , 0x00000000, offset=4 size=3 (wrong size) returns 0
+
+# === Write at offset 0 and other offsets ===
+write_off0, write, 0x00, 4, 0xFFFFFFFF, , Write at offset 0 is no-op
+write_off4_sz4, write, 0x04, 4, 0xFFFFFFFF, , Write at offset 4 size 4 is no-op
+read_still_ok, read, 0x04, 2, , 0x00000030, Still returns correct value after writes

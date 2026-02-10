@@ -1,0 +1,108 @@
+# Hammerhead Memory Controller register tests
+# Format: test_name, op, offset, size, write_value, expected_read, description
+#
+# op: read, write, write_read (write then read same register), reset
+# offset: hex register offset
+# size: access size in bytes (1, 2, or 4)
+# write_value: hex value to write (ignored for pure reads)
+# expected_read: hex expected return from read (ignored for pure writes)
+#
+# Default state: mb_id=0, rom_type=1(MBID_BURST_ROM), bus_speed=0(40MHz),
+#   arb_config=0, bank_base[26]={} all zeros
+# read() returns result << ((size-1) << 3) — value placed in MSB of multi-byte reads
+# write() extracts value >> ((size-1) << 3) before processing
+
+# === Read defined registers at size=1 (default state) ===
+CPU_ID_sz1, read, 0x00, 1, , 0x39, CPU_ID returns HH_CPU_ID_TNT=0x39
+MOTHERBOARD_ID_sz1, read, 0x20, 1, , 0x10, MOTHERBOARD_ID=(mb_id<<5)|(rom_type<<4)=(0|0x10)
+CPU_SPEED_sz1, read, 0x30, 1, , 0x00, CPU_SPEED=(bus_speed<<5)=(0<<5)=0
+ARBITER_CONFIG_sz1, read, 0x90, 1, , 0x00, ARBITER_CONFIG default=0
+WHO_AM_I_sz1, read, 0xB0, 1, , 0x10, WHO_AM_I=BM_PRIMARY_CPU<<3=(1<<1)<<3=0x10
+L2_CACHE_CONFIG_sz1, read, 0xE0, 1, , 0x00, L2_CACHE_CONFIG=0 (no L2 cache)
+
+# === Read defined registers at size=4 (verify MSB placement) ===
+CPU_ID_sz4, read, 0x00, 4, , 0x39000000, CPU_ID 0x39<<24
+MOTHERBOARD_ID_sz4, read, 0x20, 4, , 0x10000000, MOTHERBOARD_ID 0x10<<24
+CPU_SPEED_sz4, read, 0x30, 4, , 0x00000000, CPU_SPEED 0<<24
+ARBITER_CONFIG_sz4, read, 0x90, 4, , 0x00000000, ARBITER_CONFIG 0<<24
+WHO_AM_I_sz4, read, 0xB0, 4, , 0x10000000, WHO_AM_I 0x10<<24
+L2_CACHE_CONFIG_sz4, read, 0xE0, 4, , 0x00000000, L2_CACHE_CONFIG 0<<24
+
+# === Read defined registers at size=2 (verify MSB placement) ===
+CPU_ID_sz2, read, 0x00, 2, , 0x3900, CPU_ID 0x39<<8
+WHO_AM_I_sz2, read, 0xB0, 2, , 0x1000, WHO_AM_I 0x10<<8
+
+# === Read undefined/unhandled registers (should return 0) ===
+ASIC_REVISION_undef, read, 0x10, 1, , 0x00, ASIC_REVISION not handled in read switch
+MB_DRAM_CONFIG_undef, read, 0x40, 1, , 0x00, MB_DRAM_CONFIG not handled
+MEM_TIMING_0_undef, read, 0x50, 1, , 0x00, MEM_TIMING_0 not handled in read
+MEM_TIMING_1_undef, read, 0x60, 1, , 0x00, MEM_TIMING_1 not handled in read
+REFRESH_TIMING_undef, read, 0x70, 1, , 0x00, REFRESH_TIMING not handled in read
+ROM_TIMING_undef, read, 0x80, 1, , 0x00, ROM_TIMING not handled in read
+ARBUS_TIMEOUT_undef, read, 0xA0, 1, , 0x00, ARBUS_TIMEOUT not handled
+INT_REG_undef, read, 0xC0, 1, , 0x00, INT_REG not handled in read
+unknown_offset, read, 0xF0, 1, , 0x00, Unknown offset returns 0
+
+# === Write then read round-trip for ARBITER_CONFIG ===
+ARB_CFG_wr_sz1, write_read, 0x90, 1, 0x42, 0x42, ARBITER_CONFIG write 0x42 read back sz1
+ARB_CFG_wr_sz4, write_read, 0x90, 4, 0xFF000000, 0xFF000000, ARBITER_CONFIG write/read sz4
+
+# === Reset device and verify defaults restored ===
+reset_device, reset, 0x00, 1, , , Re-initialize device
+ARB_CFG_after_reset, read, 0x90, 1, , 0x00, ARBITER_CONFIG back to 0 after reset
+
+# === Bank base register tests (default reads) ===
+BANK0_MSB_default, read, 0x1C0, 1, , 0x00, Bank 0 MSB default=0
+BANK0_LSB_default, read, 0x1D0, 1, , 0x00, Bank 0 LSB default=0
+BANK1_MSB_default, read, 0x1E0, 1, , 0x00, Bank 1 MSB default=0
+BANK1_LSB_default, read, 0x1F0, 1, , 0x00, Bank 1 LSB default=0
+
+# === Bank base register write/read round-trip ===
+BANK0_MSB_write, write, 0x1C0, 1, 0xAB, , Write MSB of bank 0
+BANK0_MSB_readback, read, 0x1C0, 1, , 0xAB, Read back MSB of bank 0
+BANK0_LSB_write, write, 0x1D0, 1, 0xCD, , Write LSB of bank 0
+BANK0_LSB_readback, read, 0x1D0, 1, , 0xCD, Read back LSB of bank 0
+BANK0_MSB_still, read, 0x1C0, 1, , 0xAB, MSB of bank 0 unchanged after LSB write
+
+# === Bank base register write at size=4 ===
+BANK1_MSB_wr_sz4, write, 0x1E0, 4, 0xDE000000, , Write MSB of bank 1 at size=4
+BANK1_MSB_rd_sz4, read, 0x1E0, 4, , 0xDE000000, Read bank 1 MSB at size=4
+BANK1_LSB_wr_sz4, write, 0x1F0, 4, 0x56000000, , Write LSB of bank 1 at size=4
+BANK1_LSB_rd_sz4, read, 0x1F0, 4, , 0x56000000, Read bank 1 LSB at size=4
+
+# === Write-only registers (verify no crash) ===
+MEM_TIMING_0_write, write, 0x50, 1, 0x12, , Write to MEM_TIMING_0 (write-only)
+MEM_TIMING_1_write, write, 0x60, 1, 0x34, , Write to MEM_TIMING_1 (write-only)
+REFRESH_TIMING_write, write, 0x70, 1, 0x56, , Write to REFRESH_TIMING (write-only)
+ROM_TIMING_write, write, 0x80, 1, 0x78, , Write to ROM_TIMING (write-only)
+
+# === Write to unknown register offset ===
+unknown_write, write, 0xF0, 1, 0xAA, , Write to unknown offset (logs warning)
+unknown_write2, write, 0xD0, 4, 0xBB000000, , Write to another unknown offset
+
+# === ARBITER_CONFIG overwrite ===
+ARB_CFG_wr_first, write, 0x90, 1, 0x42, , Write 0x42 to ARBITER_CONFIG
+ARB_CFG_wr_second, write, 0x90, 1, 0x7F, , Overwrite with 0x7F
+ARB_CFG_overwrite_read, read, 0x90, 1, , 0x7F, Second write replaced first
+
+# === ARBITER_CONFIG round-trip at size=2 ===
+ARB_CFG_wr_sz2, write_read, 0x90, 2, 0xAB00, 0xAB00, ARBITER_CONFIG write/read sz2
+
+# === Higher bank indices (bank 12) ===
+BANK12_MSB_default, read, 0x340, 1, , 0x00, Bank 12 MSB default=0
+BANK12_LSB_default, read, 0x350, 1, , 0x00, Bank 12 LSB default=0
+BANK12_MSB_write, write, 0x340, 1, 0xEF, , Write MSB of bank 12
+BANK12_LSB_write, write, 0x350, 1, 0x01, , Write LSB of bank 12
+BANK12_MSB_readback, read, 0x340, 1, , 0xEF, Read back MSB of bank 12
+BANK12_LSB_readback, read, 0x350, 1, , 0x01, Read back LSB of bank 12
+
+# === Last bank (bank 25) ===
+BANK25_MSB_default, read, 0x4E0, 1, , 0x00, Bank 25 MSB default=0
+BANK25_LSB_default, read, 0x4F0, 1, , 0x00, Bank 25 LSB default=0 (last register)
+BANK25_MSB_write, write, 0x4E0, 1, 0xCA, , Write MSB of last bank
+BANK25_LSB_write, write, 0x4F0, 1, 0xFE, , Write LSB of last bank
+BANK25_MSB_readback, read, 0x4E0, 1, , 0xCA, Read back MSB of bank 25
+BANK25_LSB_readback, read, 0x4F0, 1, , 0xFE, Read back LSB of bank 25
+
+# === Cross-bank independence ===
+BANK0_MSB_untouched, read, 0x1C0, 1, , 0xAB, Bank 0 MSB still intact after other bank writes
