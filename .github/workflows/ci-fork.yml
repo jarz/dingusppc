@@ -1,0 +1,40 @@
+name: Fork CI
+on:
+  push:
+    branches:
+      - 'jarz/**'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  BUILD_TYPE: Release
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Cache ccache
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/.ccache/linux
+        key: linux-ccache-${{ runner.os }}-${{ env.BUILD_TYPE }}-${{ hashFiles('**/CMakeLists.txt') }}
+        restore-keys: linux-ccache-${{ runner.os }}-${{ env.BUILD_TYPE }}-
+    - name: Install dependencies
+      run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq libsdl2-dev ninja-build ccache
+    - name: Configure CMake
+      env:
+        CCACHE_DIR: ${{ github.workspace }}/.ccache/linux
+        CCACHE_BASEDIR: ${{ github.workspace }}
+      run: cmake -S . -B build -GNinja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DDPPC_68K_DEBUGGER=ON -DDPPC_BUILD_PPC_TESTS=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+    - name: Build
+      run: cmake --build build --config ${{env.BUILD_TYPE}} --parallel
+    - name: Test
+      working-directory: build
+      run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
