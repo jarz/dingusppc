@@ -75,3 +75,34 @@ MEM_TIMING_0_write, write, 0x50, 1, 0x12, , Write to MEM_TIMING_0 (write-only)
 MEM_TIMING_1_write, write, 0x60, 1, 0x34, , Write to MEM_TIMING_1 (write-only)
 REFRESH_TIMING_write, write, 0x70, 1, 0x56, , Write to REFRESH_TIMING (write-only)
 ROM_TIMING_write, write, 0x80, 1, 0x78, , Write to ROM_TIMING (write-only)
+
+# === Write to unknown register offset ===
+unknown_write, write, 0xF0, 1, 0xAA, , Write to unknown offset (logs warning)
+unknown_write2, write, 0xD0, 4, 0xBB000000, , Write to another unknown offset
+
+# === ARBITER_CONFIG overwrite ===
+ARB_CFG_wr_first, write, 0x90, 1, 0x42, , Write 0x42 to ARBITER_CONFIG
+ARB_CFG_wr_second, write, 0x90, 1, 0x7F, , Overwrite with 0x7F
+ARB_CFG_overwrite_read, read, 0x90, 1, , 0x7F, Second write replaced first
+
+# === ARBITER_CONFIG round-trip at size=2 ===
+ARB_CFG_wr_sz2, write_read, 0x90, 2, 0xAB00, 0xAB00, ARBITER_CONFIG write/read sz2
+
+# === Higher bank indices (bank 12) ===
+BANK12_MSB_default, read, 0x340, 1, , 0x00, Bank 12 MSB default=0
+BANK12_LSB_default, read, 0x350, 1, , 0x00, Bank 12 LSB default=0
+BANK12_MSB_write, write, 0x340, 1, 0xEF, , Write MSB of bank 12
+BANK12_LSB_write, write, 0x350, 1, 0x01, , Write LSB of bank 12
+BANK12_MSB_readback, read, 0x340, 1, , 0xEF, Read back MSB of bank 12
+BANK12_LSB_readback, read, 0x350, 1, , 0x01, Read back LSB of bank 12
+
+# === Last bank (bank 25) ===
+BANK25_MSB_default, read, 0x4E0, 1, , 0x00, Bank 25 MSB default=0
+BANK25_LSB_default, read, 0x4F0, 1, , 0x00, Bank 25 LSB default=0 (last register)
+BANK25_MSB_write, write, 0x4E0, 1, 0xCA, , Write MSB of last bank
+BANK25_LSB_write, write, 0x4F0, 1, 0xFE, , Write LSB of last bank
+BANK25_MSB_readback, read, 0x4E0, 1, , 0xCA, Read back MSB of bank 25
+BANK25_LSB_readback, read, 0x4F0, 1, , 0xFE, Read back LSB of bank 25
+
+# === Cross-bank independence ===
+BANK0_MSB_untouched, read, 0x1C0, 1, , 0xAB, Bank 0 MSB still intact after other bank writes

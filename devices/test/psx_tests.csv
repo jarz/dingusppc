@@ -57,3 +57,22 @@ reset_device, reset, 0x00, 1, , , Re-initialize device
 Sys_Id_after_reset, read, 0x00, 4, , 0x10000000, Sys_Id correct after reset
 Revision_after_reset, read, 0x08, 4, , 0x00000000, Revision correct after reset
 Sys_Config_after_reset, read, 0x10, 4, , 0x00000003, Sys_Config back to default after reset
+
+# === Offset aliasing: offset>>3 maps multiple offsets to same register ===
+# offset 0x04 → reg = 0x04>>3 = 0 = Sys_Id
+Sys_Id_alias, read, 0x04, 4, , 0x10000000, Offset 0x04 aliases to Sys_Id
+# offset 0x0F → reg = 0x0F>>3 = 1 = Revision
+Revision_alias, read, 0x0F, 4, , 0x00000000, Offset 0x0F aliases to Revision
+# offset 0x17 → reg = 0x17>>3 = 2 = Sys_Config
+Sys_Config_alias, read, 0x17, 4, , 0x00000003, Offset 0x17 aliases to Sys_Config
+
+# === Sys_Config read at size=2 (no size adjustment in PSX) ===
+Sys_Config_sz2, read, 0x10, 2, , 0x00000003, Sys_Config at size=2
+
+# === Sys_Config overwrite ===
+Sys_Config_first, write, 0x10, 4, 0x12345678, , Write first value
+Sys_Config_second, write, 0x10, 4, 0xABCDEF01, , Overwrite with second value
+Sys_Config_check, read, 0x10, 4, , 0xABCDEF01, Second write replaced first
+
+# === Write to Bus_Timeout (unsupported write) ===
+Bus_Timeout_write, write, 0x68, 4, 0x42424242, , Write to Bus_Timeout (logs warning)

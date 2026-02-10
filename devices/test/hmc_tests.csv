@@ -82,3 +82,69 @@ read_wrapped_b1, read_bit, 0, , 1, After wrap bit 1 is 1
 # === Read from non-zero offset returns 0 ===
 reset_pos_nz, reset_pos, 8, , , Reset bit_pos to 0
 read_offset4, read_bit, 4, , 0, Read from non-zero offset returns 0
+
+# === Clear all 35 bits to start from clean state ===
+reset_pos_clr0, reset_pos, 8, , , Reset bit_pos to 0
+clr_b00, write_bit, 0, 0, , Clear bit 0
+clr_b01, write_bit, 0, 0, , Clear bit 1
+clr_b02, write_bit, 0, 0, , Clear bit 2
+clr_b03, write_bit, 0, 0, , Clear bit 3
+clr_b04, write_bit, 0, 0, , Clear bit 4
+clr_b05, write_bit, 0, 0, , Clear bit 5
+clr_b06, write_bit, 0, 0, , Clear bit 6
+clr_b07, write_bit, 0, 0, , Clear bit 7
+clr_b08, write_bit, 0, 0, , Clear bit 8
+clr_b09, write_bit, 0, 0, , Clear bit 9
+clr_b10, write_bit, 0, 0, , Clear bit 10
+clr_b11, write_bit, 0, 0, , Clear bit 11
+clr_b12, write_bit, 0, 0, , Clear bit 12
+clr_b13, write_bit, 0, 0, , Clear bit 13
+clr_b14, write_bit, 0, 0, , Clear bit 14
+clr_b15, write_bit, 0, 0, , Clear bit 15
+clr_b16, write_bit, 0, 0, , Clear bit 16
+clr_b17, write_bit, 0, 0, , Clear bit 17
+clr_b18, write_bit, 0, 0, , Clear bit 18
+clr_b19, write_bit, 0, 0, , Clear bit 19
+clr_b20, write_bit, 0, 0, , Clear bit 20
+clr_b21, write_bit, 0, 0, , Clear bit 21
+clr_b22, write_bit, 0, 0, , Clear bit 22
+clr_b23, write_bit, 0, 0, , Clear bit 23
+clr_b24, write_bit, 0, 0, , Clear bit 24
+clr_b25, write_bit, 0, 0, , Clear bit 25
+clr_b26, write_bit, 0, 0, , Clear bit 26
+clr_b27, write_bit, 0, 0, , Clear bit 27
+clr_b28, write_bit, 0, 0, , Clear bit 28
+clr_b29, write_bit, 0, 0, , Clear bit 29
+clr_b30, write_bit, 0, 0, , Clear bit 30
+clr_b31, write_bit, 0, 0, , Clear bit 31
+clr_b32, write_bit, 0, 0, , Clear bit 32
+clr_b33, write_bit, 0, 0, , Clear bit 33
+clr_b34, write_bit, 0, 0, , Clear bit 34 (wraps bit_pos to 0)
+check_all_clear, check_ctrl_reg, 0, 0, 0x0000000000, ctrl_reg is now 0
+
+# === Set a pattern: bits 0 1 3 set (0xB) ===
+new_b0, write_bit, 0, 1, , Set bit 0
+new_b1, write_bit, 0, 1, , Set bit 1
+new_b2, write_bit, 0, 0, , Clear bit 2
+new_b3, write_bit, 0, 1, , Set bit 3
+check_pattern_new, check_ctrl_reg, 0, 0, 0x000000000B, ctrl_reg = 0xB
+
+# === Clear a previously-set bit: clear bit 1 ===
+reset_pos_sel, reset_pos, 8, , , Reset bit_pos to 0
+keep_b0, write_bit, 0, 1, , Keep bit 0 as 1
+clear_b1, write_bit, 0, 0, , Clear bit 1
+check_after_clear, check_ctrl_reg, 0, 0, 0x0000000009, ctrl_reg = 0x9 (bit 1 cleared)
+
+# === Verify cleared bit reads back as 0 ===
+reset_pos_verify, reset_pos, 8, , , Reset bit_pos to 0
+verify_b0, read_bit, 0, , 1, Bit 0 still set
+verify_b1, read_bit, 0, , 0, Bit 1 now cleared
+verify_b2, read_bit, 0, , 0, Bit 2 still clear
+verify_b3, read_bit, 0, , 1, Bit 3 still set
+
+# === Write to unhandled offset (not 0, not 8) — silently ignored ===
+reset_pos_unk, reset_pos, 8, , , Reset bit_pos to 0
+write_offset4, write_bit, 4, 1, , Write to offset 4 (not in switch)
+check_unk_unchanged, check_ctrl_reg, 0, 0, 0x0000000009, ctrl_reg unchanged after unhandled write
+# Also verify bit_pos didn't advance (reading from offset 0 at pos 0)
+read_pos0_still, read_bit, 0, , 1, bit_pos still at 0 (reads bit 0 which is 1)

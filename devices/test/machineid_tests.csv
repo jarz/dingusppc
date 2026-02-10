@@ -16,3 +16,11 @@ PDM_byte3, read, 0x03, 1, , 0x10, Model (PDM)
 PDM_write, write, 0x00, 1, 0xFF, , Write is no-op
 PDM_byte0_after_write, read, 0x00, 1, , 0xA5, Unchanged after write
 PDM_byte3_after_write, read, 0x03, 1, , 0x10, Unchanged after write
+
+# === Write at various offsets and sizes ===
+PDM_write_off1, write, 0x01, 1, 0x00, , Write at offset 1 is no-op
+PDM_write_off2, write, 0x02, 1, 0xAA, , Write at offset 2 is no-op
+PDM_write_off3, write, 0x03, 1, 0xBB, , Write at offset 3 is no-op
+PDM_byte1_after_writes, read, 0x01, 1, , 0x5A, Byte 1 unchanged after writes
+PDM_byte2_after_writes, read, 0x02, 1, , 0x30, Byte 2 unchanged after writes
+PDM_byte3_after_writes2, read, 0x03, 1, , 0x10, Byte 3 unchanged after writes

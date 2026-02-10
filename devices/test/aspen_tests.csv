@@ -56,3 +56,28 @@ reset_device, reset, 0x00, 1, , , Re-initialize device
 GPIO_EN_after_reset, read, 0x34, 4, , 0x00000000, gpio_enable back to 0
 SYS_ID_after_reset, read, 0x10, 4, , 0x40010000, SYSTEM_ID still correct
 CHIP_REV_after_reset, read, 0x14, 4, , 0x01000000, CHIP_REV still correct
+
+# === Register aliasing via offset masking: (offset>>2) & 0x1F ===
+# offset 0x90 → reg_num = (0x90>>2) & 0x1F = 0x24 & 0x1F = 4 = SYSTEM_ID
+SYS_ID_alias, read, 0x90, 4, , 0x40010000, SYSTEM_ID aliased at offset 0x90
+# offset 0x94 → reg_num = (0x94>>2) & 0x1F = 0x25 & 0x1F = 5 = CHIP_REV
+CHIP_REV_alias, read, 0x94, 4, , 0x01000000, CHIP_REV aliased at offset 0x94
+
+# === GPIO_ENABLE overwrite ===
+GPIO_EN_wr_first, write, 0x34, 4, 0x11000000, , Write gpio_enable=0x11
+GPIO_EN_wr_first_read, read, 0x34, 4, , 0x11000000, Verify first value
+GPIO_EN_wr_second, write, 0x34, 4, 0x22000000, , Overwrite gpio_enable=0x22
+GPIO_EN_wr_second_read, read, 0x34, 4, , 0x22000000, Second write replaced first
+
+# === GPIO_ENABLE aliased write/read via offset 0xB4 ===
+# offset 0xB4 → reg_num = (0xB4>>2) & 0x1F = 0x2D & 0x1F = 13 = GPIO_ENABLE
+GPIO_EN_alias_write, write, 0xB4, 4, 0x77000000, , Write gpio_enable via aliased offset
+GPIO_EN_alias_read, read, 0x34, 4, , 0x77000000, Read back at canonical offset
+GPIO_EN_alias_read2, read, 0xB4, 4, , 0x77000000, Read back at aliased offset
+
+# === MEM_CONFIG double write (no crash) ===
+MEM_CFG_write1, write, 0x18, 4, 0x55000000, , Write ram_config=0x55
+MEM_CFG_write2, write, 0x18, 4, 0xBB000000, , Overwrite ram_config=0xBB
+
+# === Verify SYSTEM_ID unaffected by other register writes ===
+SYS_ID_after_writes, read, 0x10, 4, , 0x40010000, SYSTEM_ID still correct after writes
