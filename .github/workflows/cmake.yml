@@ -39,7 +39,7 @@ jobs:
       env:
         CCACHE_DIR: ${{ github.workspace }}/.ccache/linux
         CCACHE_BASEDIR: ${{ github.workspace }}
-      run: cmake -S . -B ${{github.workspace}}/build -GNinja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DDPPC_68K_DEBUGGER=ON -DDPPC_BUILD_PPC_TESTS=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      run: cmake -S . -B ${{github.workspace}}/build -GNinja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DDPPC_68K_DEBUGGER=ON -DDPPC_BUILD_PPC_TESTS=ON -DDPPC_BUILD_BENCHMARKS=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
     - name: Build
       # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --parallel
