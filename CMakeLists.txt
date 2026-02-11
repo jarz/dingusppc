@@ -201,27 +201,32 @@ endif()
 
 if (DPPC_BUILD_BENCHMARKS)
     add_compile_options("-DPPC_BENCHMARKS")
-    file(GLOB BENCH_SOURCES "${PROJECT_SOURCE_DIR}/benchmark/*.cpp"
-                            "${PROJECT_SOURCE_DIR}/cpu/ppc/*.cpp"
-                            "${PROJECT_SOURCE_DIR}/cpu/ppc/*.h"
-                            )
-    add_executable(bench1 ${BENCH_SOURCES} $<TARGET_OBJECTS:core>
-                                           # $<TARGET_OBJECTS:cpu_ppc>
-                                           $<TARGET_OBJECTS:debugger>
-                                           $<TARGET_OBJECTS:devices>
-                                           $<TARGET_OBJECTS:machines>
-                                           $<TARGET_OBJECTS:utils>
-                                           $<TARGET_OBJECTS:loguru>)
+    file(GLOB PPC_BENCH_SOURCES "${PROJECT_SOURCE_DIR}/cpu/ppc/*.cpp"
+                                "${PROJECT_SOURCE_DIR}/cpu/ppc/*.h"
+                                )
 
-    target_link_libraries(bench1 PRIVATE cubeb SDL2::SDL2 ${CMAKE_DL_LIBS}
-            ${CMAKE_THREAD_LIBS_INIT})
-    if (WIN32)
-        target_compile_definitions(bench1 PRIVATE SDL_MAIN_HANDLED)
-    endif()
+    foreach(BENCH_NAME bench1 bench2)
+        add_executable(${BENCH_NAME}
+                            "${PROJECT_SOURCE_DIR}/benchmark/${BENCH_NAME}.cpp"
+                            ${PPC_BENCH_SOURCES}
+                            $<TARGET_OBJECTS:core>
+                            # $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
 
-    if (DPPC_68K_DEBUGGER)
-        target_link_libraries(bench1 PRIVATE capstone)
-    endif()
+        target_link_libraries(${BENCH_NAME} PRIVATE cubeb SDL2::SDL2 ${CMAKE_DL_LIBS}
+                ${CMAKE_THREAD_LIBS_INIT})
+        if (WIN32)
+            target_compile_definitions(${BENCH_NAME} PRIVATE SDL_MAIN_HANDLED)
+        endif()
+
+        if (DPPC_68K_DEBUGGER)
+            target_link_libraries(${BENCH_NAME} PRIVATE capstone)
+        endif()
+    endforeach()
 endif()
 
 if (DPPC_BUILD_PPC_TESTS)
