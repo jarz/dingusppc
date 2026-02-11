@@ -197,9 +197,7 @@ if (DPPC_BUILD_PPC_TESTS)
     endif()
 
     enable_testing()
-    add_test(NAME testppc
-             COMMAND testppc
-             WORKING_DIRECTORY $<TARGET_FILE_DIR:testppc>)
+    add_test(NAME testppc COMMAND testppc WORKING_DIRECTORY $<TARGET_FILE_DIR:testppc>)
 endif()
 
 if (DPPC_BUILD_BENCHMARKS)
