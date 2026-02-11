@@ -32,20 +32,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 //Extract the registers desired and the values of the registers.
 
-// Affects CR Field 0 - For integer operations
-void ppc_changecrf0(uint32_t set_result) {
-    ppc_state.cr =
-        (ppc_state.cr & 0x0FFFFFFFU) // clear CR0
-        | (
-            (set_result == 0) ?
-                CRx_bit::CR_EQ
-            : (int32_t(set_result) < 0) ?
-                CRx_bit::CR_LT
-            :
-                CRx_bit::CR_GT
-        )
-        | ((ppc_state.spr[SPR::XER] & XER::SO) >> 3); // copy XER[SO] into CR0[SO].
-}
+// ppc_changecrf0 is now inline in ppcemu.h
 
 // Affects the XER register's Carry Bit
 inline static void ppc_carry(uint32_t a, uint32_t b) {
@@ -74,7 +61,7 @@ inline static void ppc_setsoov(uint32_t a, uint32_t b, uint32_t d) {
     }
 }
 
-typedef std::function<void()> CtxSyncCallback;
+typedef void (*CtxSyncCallback)();
 std::vector<CtxSyncCallback> gCtxSyncCallbacks;
 
 // perform context synchronization by executing registered actions if any
@@ -85,7 +72,7 @@ void do_ctx_sync() {
     }
 }
 
-void add_ctx_sync_action(const CtxSyncCallback& cb) {
+void add_ctx_sync_action(void (*cb)()) {
     gCtxSyncCallbacks.push_back(cb);
 }
 

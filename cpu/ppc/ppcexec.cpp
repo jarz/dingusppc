@@ -71,7 +71,7 @@ uint32_t ppc_next_instruction_address;    // Used for branching, setting up the 
 unsigned exec_flags; // execution control flags
 // FIXME: exec_timer is read by main thread ppc_main_opcode;
 // written by audio dbdma DMAChannel::update_irq .. add_immediate_timer
-volatile bool exec_timer;
+std::atomic<bool> exec_timer{false};
 bool int_pin = false; // interrupt request pin state: true - asserted
 bool dec_exception_pending = false;
 
@@ -274,7 +274,7 @@ uint64_t get_virt_time_ns()
 
 static uint64_t process_events()
 {
-    exec_timer = false;
+    exec_timer.store(false, std::memory_order_relaxed);
     uint64_t slice_ns = TimerManager::get_instance()->process_timers();
     if (slice_ns == 0) {
         // execute 25.000 cycles
@@ -287,7 +287,7 @@ static uint64_t process_events()
 static void force_cycle_counter_reload()
 {
     // tell the interpreter loop to reload cycle counter
-    exec_timer = true;
+    exec_timer.store(true, std::memory_order_relaxed);
 }
 
 typedef enum {
@@ -323,10 +323,10 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
 
         opcode = ppc_read_instruction(pc_real);
         ppc_main_opcode(opcode_grabber, opcode);
-        if (g_icycles++ >= max_cycles || exec_timer) [[unlikely]]
+        if (g_icycles++ >= max_cycles || exec_timer.load(std::memory_order_relaxed)) [[unlikely]]
             max_cycles = process_events();
 
-        if (exec_flags) {
+        if (exec_flags) [[unlikely]] {
             if (exec_flags & EXEF_OPC_DECODER) [[unlikely]] {
                 opcode_grabber = ppc_opcode_grabber;
             }
@@ -341,7 +341,7 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
             }
             ppc_state.pc = eb_start;
             exec_flags = 0;
-        } else { [[likely]]
+        } else [[likely]] {
             ppc_state.pc += 4;
             pc_real += 4;
         }
@@ -855,7 +855,7 @@ void ppc_cpu_init(MemCtrlBase* mem_ctrl, uint32_t cpu_version, bool do_include_6
     tbr_period_ns = ((uint64_t)NS_PER_SEC << 32) / tb_freq;
 
     exec_flags = 0;
-    exec_timer = false;
+    exec_timer.store(false, std::memory_order_relaxed);
 
     timebase_counter = 0;
     dec_wr_value = 0;

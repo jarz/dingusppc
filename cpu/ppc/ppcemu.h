@@ -28,7 +28,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include <atomic>
 #include <cinttypes>
-#include <functional>
 #include <setjmp.h>
 #include <string>
 
@@ -451,7 +450,19 @@ void ppc_release_int();
 
 void initialize_ppc_opcode_table();
 
-void ppc_changecrf0(uint32_t set_result);
+inline void ppc_changecrf0(uint32_t set_result) {
+    ppc_state.cr =
+        (ppc_state.cr & 0x0FFFFFFFU) // clear CR0
+        | (
+            (set_result == 0) ?
+                CRx_bit::CR_EQ
+            : (int32_t(set_result) < 0) ?
+                CRx_bit::CR_LT
+            :
+                CRx_bit::CR_GT
+        )
+        | ((ppc_state.spr[SPR::XER] & XER::SO) >> 3); // copy XER[SO] into CR0[SO].
+}
 void set_host_rounding_mode(uint8_t mode);
 void update_fpscr(uint32_t new_fpscr);
 
@@ -464,7 +475,7 @@ void ppc_alignment_exception(uint32_t opcode, uint32_t ea);
 // MEMORY DECLARATIONS
 extern MemCtrlBase* mem_ctrl_instance;
 
-extern void add_ctx_sync_action(const std::function<void()> &);
+extern void add_ctx_sync_action(void (*action)());
 extern void do_ctx_sync(void);
 
 // The functions used by the PowerPC processor
