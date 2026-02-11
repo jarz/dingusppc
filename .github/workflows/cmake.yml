@@ -352,6 +352,8 @@ jobs:
   fuzz:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      ASAN_OPTIONS: detect_leaks=0
     steps:
     - uses: actions/checkout@v4
       with:

@@ -250,10 +250,15 @@ if (DPPC_BUILD_FUZZ)
                          ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
 
     # Helper: declare a fuzz target with the standard flags.
+    # Combines libFuzzer with ASan + UBSan for maximum bug detection.
     function(add_fuzz_target TARGET_NAME)
         target_compile_definitions(${TARGET_NAME} PRIVATE PPC_TESTS)
-        target_compile_options(${TARGET_NAME} PRIVATE -fsanitize=fuzzer)
-        target_link_options(${TARGET_NAME} PRIVATE -fsanitize=fuzzer)
+        target_compile_options(${TARGET_NAME} PRIVATE
+            -fsanitize=fuzzer,address,undefined
+            -fno-sanitize-recover=undefined
+            -fno-omit-frame-pointer)
+        target_link_options(${TARGET_NAME} PRIVATE
+            -fsanitize=fuzzer,address,undefined)
         target_link_libraries(${TARGET_NAME} PRIVATE ${FUZZ_COMMON_LIBS})
         if (DPPC_68K_DEBUGGER)
             target_link_libraries(${TARGET_NAME} PRIVATE capstone)

@@ -1250,10 +1250,10 @@ void opc_group31(PPCDisasmContext* ctx) {
                 add_reg_out(ctx, "cr");
             }
         } else {
-            strcpy(opcode, opc_logic[index]);
-            if (!strlen(opcode)) {
+            if (index >= 16 || !strlen(opc_logic[index])) {
                 opc_illegal(ctx);
             } else {
+                strcpy(opcode, opc_logic[index]);
                 if (rc_set) {
                     strcat(opcode, ".");
                     add_reg_out(ctx, "cr");
