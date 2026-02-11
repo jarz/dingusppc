@@ -174,6 +174,10 @@ if (DPPC_68K_DEBUGGER)
     target_link_libraries(dingusppc PRIVATE capstone)
 endif()
 
+if (DPPC_BUILD_PPC_TESTS OR DPPC_BUILD_BENCHMARKS)
+    enable_testing()
+endif()
+
 if (DPPC_BUILD_PPC_TESTS)
     add_executable(testppc ${TEST_SOURCES} $<TARGET_OBJECTS:core>
                                            $<TARGET_OBJECTS:cpu_ppc>
@@ -195,7 +199,6 @@ if (DPPC_BUILD_PPC_TESTS)
         target_link_libraries(testppc PRIVATE capstone)
     endif()
 
-    enable_testing()
     add_test(NAME testppc COMMAND testppc WORKING_DIRECTORY $<TARGET_FILE_DIR:testppc>)
 endif()
 
@@ -225,6 +228,13 @@ if (DPPC_BUILD_BENCHMARKS)
 
         if (DPPC_68K_DEBUGGER)
             target_link_libraries(${BENCH_NAME} PRIVATE capstone)
+        endif()
+
+        # Register benchmarks as CTest tests for regression detection.
+        # bench1 validates a deterministic PPC checksum (nonzero exit = mismatch).
+        # bench2 validates interpreter dispatch paths complete without crash.
+        if (NOT CMAKE_CROSSCOMPILING)
+            add_test(NAME ${BENCH_NAME} COMMAND ${BENCH_NAME})
         endif()
     endforeach()
 endif()
