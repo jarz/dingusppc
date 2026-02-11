@@ -357,5 +357,5 @@ int main() {
     // Disassembler test failures are regressions and must fail CI.
     // Instruction test failures are logged above for visibility but
     // do not fail CI because known FP edge-case mismatches exist.
-    return disasm_failures > 0 ? 1 : 0;
+    return disasm_failures > 255 ? 255 : disasm_failures;
 }
