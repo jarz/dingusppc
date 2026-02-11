@@ -163,7 +163,7 @@ int main(int argc, char** argv) {
             0x100000, /* 1M iterations */
         },
         {
-            "Tight branch loop (bdnz — 64K x 1 insn)",
+            "Tight branch loop (bdnz — 8K x 1 insn)",
             branch_loop_code,
             sizeof(branch_loop_code) / sizeof(branch_loop_code[0]),
             0x0C, /* stop_addr */
