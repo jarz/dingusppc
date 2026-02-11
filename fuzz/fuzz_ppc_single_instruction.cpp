@@ -96,10 +96,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     size_t remaining = size - 4;
 
     if (remaining >= 1) {
-        ppc_state.cr = uint32_t(extra[0]) * 0x01010101u; // spread CR across fields
+        // Replicate the byte across all four CR fields (CR0-CR7 are 4 bits each).
+        ppc_state.cr = uint32_t(extra[0]) * 0x01010101u;
     }
     if (remaining >= 2) {
-        ppc_state.spr[SPR::XER] = uint32_t(extra[1]) << 24; // SO/OV/CA bits
+        // Place fuzzed bits in the XER upper byte (SO, OV, CA at bits 31-29).
+        ppc_state.spr[SPR::XER] = uint32_t(extra[1]) << 24;
     }
     if (remaining >= 6) {
         // Seed two source GPRs commonly used by instructions.
