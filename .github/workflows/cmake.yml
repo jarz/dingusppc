@@ -283,3 +283,30 @@ jobs:
         name: DingusPPC-${{ matrix.upload_suffix }}
         path: ${{github.workspace}}/build/bin
         retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
+
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq libsdl2-dev ninja-build
+    - name: Configure CMake
+      run: >
+        cmake -S . -B ${{github.workspace}}/build -GNinja
+        -DCMAKE_BUILD_TYPE=Debug
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_CXX_COMPILER=clang++
+        -DDPPC_BUILD_FUZZ=ON
+    - name: Build
+      run: cmake --build ${{github.workspace}}/build --target fuzz_ppc_single_instruction --parallel
+    - name: Smoke-test fuzzer
+      run: >
+        timeout 30
+        ${{github.workspace}}/build/bin/fuzz_ppc_single_instruction
+        -max_total_time=10 -max_len=4
+        || test $? -eq 124

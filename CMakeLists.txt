@@ -51,6 +51,7 @@ endif()
 
 option(DPPC_BUILD_PPC_TESTS  "Build PowerPC tests" OFF)
 option(DPPC_BUILD_BENCHMARKS "Build benchmarking programs" OFF)
+option(DPPC_BUILD_FUZZ       "Build fuzz targets (requires Clang and libFuzzer)" OFF)
 
 option(DPPC_68K_DEBUGGER   "Enable 68k debugging" OFF)
 
@@ -229,6 +230,32 @@ if (DPPC_BUILD_PPC_TESTS)
         "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcfloattests.csv"
         "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcdisasmtest.csv"
         $<TARGET_FILE_DIR:${PROJECT_NAME}>)
+endif()
+
+if (DPPC_BUILD_FUZZ)
+    file(GLOB FUZZ_PPC_SOURCES "${PROJECT_SOURCE_DIR}/cpu/ppc/*.cpp"
+                               "${PROJECT_SOURCE_DIR}/cpu/ppc/*.h")
+    add_executable(fuzz_ppc_single_instruction
+        "${PROJECT_SOURCE_DIR}/fuzz/fuzz_ppc_single_instruction.cpp"
+        ${FUZZ_PPC_SOURCES}
+        $<TARGET_OBJECTS:core>
+        $<TARGET_OBJECTS:debugger>
+        $<TARGET_OBJECTS:devices>
+        $<TARGET_OBJECTS:machines>
+        $<TARGET_OBJECTS:utils>
+        $<TARGET_OBJECTS:loguru>)
+
+    target_compile_definitions(fuzz_ppc_single_instruction PRIVATE PPC_TESTS)
+    target_compile_options(fuzz_ppc_single_instruction PRIVATE -fsanitize=fuzzer)
+    target_link_options(fuzz_ppc_single_instruction PRIVATE -fsanitize=fuzzer)
+
+    target_link_libraries(fuzz_ppc_single_instruction PRIVATE
+        SDL2::SDL2main SDL2::SDL2 cubeb
+        ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(fuzz_ppc_single_instruction PRIVATE capstone)
+    endif()
 endif()
 
 install (TARGETS dingusppc DESTINATION ${PROJECT_SOURCE_DIR}/build)
