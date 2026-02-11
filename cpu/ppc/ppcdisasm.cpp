@@ -1176,14 +1176,14 @@ void opc_group31(PPCDisasmContext* ctx) {
             if (!rs && !ra)
                 opc_illegal(ctx);
             else {
-                ctx->instr_str = my_sprintf("%-7s r%s", "tlbld", rb);
+                ctx->instr_str = my_sprintf("%-7s r%d", "tlbld", rb);
                 add_reg_in(ctx, "r%d", rb);
             }
         } else if (index == 30) { /* tlbli - 603 only */
             if (!rs && !ra)
                 opc_illegal(ctx);
             else {
-                ctx->instr_str = my_sprintf("%-7s r%s", "tlbli", rb);
+                ctx->instr_str = my_sprintf("%-7s r%d", "tlbli", rb);
                 add_reg_in(ctx, "r%d", rb);
             }
         }

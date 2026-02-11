@@ -303,10 +303,26 @@ jobs:
         -DCMAKE_CXX_COMPILER=clang++
         -DDPPC_BUILD_FUZZ=ON
     - name: Build
-      run: cmake --build ${{github.workspace}}/build --target fuzz_ppc_single_instruction --parallel
-    - name: Smoke-test fuzzer
+      run: >
+        cmake --build ${{github.workspace}}/build --parallel
+        --target fuzz_ppc_single_instruction
+        --target fuzz_ppc_disasm
+        --target fuzz_mmio_device
+    - name: Smoke-test single-instruction fuzzer
       run: >
         timeout 30
         ${{github.workspace}}/build/bin/fuzz_ppc_single_instruction
         -max_total_time=10 -max_len=4
+        || test $? -eq 124
+    - name: Smoke-test disassembler fuzzer
+      run: >
+        timeout 30
+        ${{github.workspace}}/build/bin/fuzz_ppc_disasm
+        -max_total_time=10 -max_len=4
+        || test $? -eq 124
+    - name: Smoke-test MMIO device fuzzer
+      run: >
+        timeout 30
+        ${{github.workspace}}/build/bin/fuzz_mmio_device
+        -max_total_time=10 -max_len=8
         || test $? -eq 124

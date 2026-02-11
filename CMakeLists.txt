@@ -235,27 +235,48 @@ endif()
 if (DPPC_BUILD_FUZZ)
     file(GLOB FUZZ_PPC_SOURCES "${PROJECT_SOURCE_DIR}/cpu/ppc/*.cpp"
                                "${PROJECT_SOURCE_DIR}/cpu/ppc/*.h")
+
+    set(FUZZ_COMMON_OBJECTS $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+
+    set(FUZZ_COMMON_LIBS SDL2::SDL2main SDL2::SDL2 cubeb
+                         ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+
+    # Helper: declare a fuzz target with the standard flags.
+    function(add_fuzz_target TARGET_NAME)
+        target_compile_definitions(${TARGET_NAME} PRIVATE PPC_TESTS)
+        target_compile_options(${TARGET_NAME} PRIVATE -fsanitize=fuzzer)
+        target_link_options(${TARGET_NAME} PRIVATE -fsanitize=fuzzer)
+        target_link_libraries(${TARGET_NAME} PRIVATE ${FUZZ_COMMON_LIBS})
+        if (DPPC_68K_DEBUGGER)
+            target_link_libraries(${TARGET_NAME} PRIVATE capstone)
+        endif()
+    endfunction()
+
+    # 1) Single-instruction PPC fuzzer
     add_executable(fuzz_ppc_single_instruction
         "${PROJECT_SOURCE_DIR}/fuzz/fuzz_ppc_single_instruction.cpp"
         ${FUZZ_PPC_SOURCES}
-        $<TARGET_OBJECTS:core>
-        $<TARGET_OBJECTS:debugger>
-        $<TARGET_OBJECTS:devices>
-        $<TARGET_OBJECTS:machines>
-        $<TARGET_OBJECTS:utils>
-        $<TARGET_OBJECTS:loguru>)
+        ${FUZZ_COMMON_OBJECTS})
+    add_fuzz_target(fuzz_ppc_single_instruction)
 
-    target_compile_definitions(fuzz_ppc_single_instruction PRIVATE PPC_TESTS)
-    target_compile_options(fuzz_ppc_single_instruction PRIVATE -fsanitize=fuzzer)
-    target_link_options(fuzz_ppc_single_instruction PRIVATE -fsanitize=fuzzer)
+    # 2) PPC disassembler fuzzer
+    add_executable(fuzz_ppc_disasm
+        "${PROJECT_SOURCE_DIR}/fuzz/fuzz_ppc_disasm.cpp"
+        ${FUZZ_PPC_SOURCES}
+        ${FUZZ_COMMON_OBJECTS})
+    add_fuzz_target(fuzz_ppc_disasm)
 
-    target_link_libraries(fuzz_ppc_single_instruction PRIVATE
-        SDL2::SDL2main SDL2::SDL2 cubeb
-        ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
-
-    if (DPPC_68K_DEBUGGER)
-        target_link_libraries(fuzz_ppc_single_instruction PRIVATE capstone)
-    endif()
+    # 3) MMIO device register fuzzer
+    add_executable(fuzz_mmio_device
+        "${PROJECT_SOURCE_DIR}/fuzz/fuzz_mmio_device.cpp"
+        ${FUZZ_PPC_SOURCES}
+        ${FUZZ_COMMON_OBJECTS})
+    add_fuzz_target(fuzz_mmio_device)
 endif()
 
 install (TARGETS dingusppc DESTINATION ${PROJECT_SOURCE_DIR}/build)
