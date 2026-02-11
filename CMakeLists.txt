@@ -286,6 +286,13 @@ if (DPPC_BUILD_FUZZ)
         ${FUZZ_PPC_SOURCES}
         ${FUZZ_COMMON_OBJECTS})
     add_fuzz_target(fuzz_mmio_device)
+
+    # 4) PCI config space fuzzer
+    add_executable(fuzz_pci_cfg
+        "${PROJECT_SOURCE_DIR}/fuzz/fuzz_pci_cfg.cpp"
+        ${FUZZ_PPC_SOURCES}
+        ${FUZZ_COMMON_OBJECTS})
+    add_fuzz_target(fuzz_pci_cfg)
 endif()
 
 install (TARGETS dingusppc DESTINATION ${PROJECT_SOURCE_DIR}/build)

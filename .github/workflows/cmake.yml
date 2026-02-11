@@ -375,6 +375,7 @@ jobs:
         --target fuzz_ppc_single_instruction
         --target fuzz_ppc_disasm
         --target fuzz_mmio_device
+        --target fuzz_pci_cfg
     - name: Smoke-test single-instruction fuzzer
       run: >
         timeout 30
@@ -392,4 +393,10 @@ jobs:
         timeout 30
         ${{github.workspace}}/build/bin/fuzz_mmio_device
         -max_total_time=10 -max_len=8
+        || test $? -eq 124
+    - name: Smoke-test PCI config space fuzzer
+      run: >
+        timeout 30
+        ${{github.workspace}}/build/bin/fuzz_pci_cfg
+        -max_total_time=10 -max_len=6
         || test $? -eq 124
