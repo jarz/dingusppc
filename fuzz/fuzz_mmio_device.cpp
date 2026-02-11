@@ -23,28 +23,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // offset / value / size combinations into their read() and write()
 // methods, exercising register decode and state-machine logic.
 
+#include "fuzz_mmio_devices.h"
 #include <devices/memctrl/hmc.h>
 #include <devices/memctrl/hammerhead.h>
-#include <devices/common/mmiodevice.h>
 #include "cpu/ppc/ppcemu.h"
 #include <cstdint>
 #include <cstring>
-#include <memory>
 
 // Stub: absorb exceptions without crashing the fuzzer.
 void ppc_exception_handler(Except_Type exception_type, uint32_t srr1_bits) {
     power_on = false;
 }
 
-// Minimal struct describing one device under test.
-struct DeviceUnderTest {
-    MMIODevice* dev;
-    uint32_t    rgn_start;
-    uint32_t    rgn_size;
-};
-
+static constexpr int MAX_DEVICES = 4;
 static bool g_initialized = false;
-static DeviceUnderTest g_devices[2];
+static DeviceUnderTest g_devices[MAX_DEVICES];
 static int g_num_devices = 0;
 
 static void fuzz_init() {
@@ -58,6 +51,11 @@ static void fuzz_init() {
     // HammerheadCtrl: MMIO region 0xF8000000, size 0x500
     static HammerheadCtrl hammerhead;
     g_devices[g_num_devices++] = { &hammerhead, 0xF8000000, 0x500 };
+
+    // AspenCtrl and PsxCtrl are created in fuzz_mmio_extras.cpp
+    // to avoid BANK_SIZE enum conflicts between hmc.h and aspen.h.
+    g_devices[g_num_devices++] = make_aspen();
+    g_devices[g_num_devices++] = make_psx();
 
     g_initialized = true;
 }

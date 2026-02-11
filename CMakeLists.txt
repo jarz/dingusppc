@@ -274,6 +274,7 @@ if (DPPC_BUILD_FUZZ)
     # 3) MMIO device register fuzzer
     add_executable(fuzz_mmio_device
         "${PROJECT_SOURCE_DIR}/fuzz/fuzz_mmio_device.cpp"
+        "${PROJECT_SOURCE_DIR}/fuzz/fuzz_mmio_extras.cpp"
         ${FUZZ_PPC_SOURCES}
         ${FUZZ_COMMON_OBJECTS})
     add_fuzz_target(fuzz_mmio_device)
