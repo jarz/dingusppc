@@ -348,7 +348,14 @@ int main() {
     cout << "--> Tested instructions: " << dec << ntested << endl;
     cout << "--> Failed: " << dec << nfailed << endl << endl;
 
+    int instr_failures = nfailed;
+
     cout << "Running PPC disassembler tests..." << endl << endl;
 
-    return test_ppc_disasm();
+    int disasm_failures = test_ppc_disasm();
+
+    // Disassembler test failures are regressions and must fail CI.
+    // Instruction test failures are logged above for visibility but
+    // do not fail CI because known FP edge-case mismatches exist.
+    return disasm_failures > 0 ? 1 : 0;
 }
