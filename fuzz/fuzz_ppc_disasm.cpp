@@ -42,11 +42,17 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                       (uint32_t(data[2]) <<  8) |
                       (uint32_t(data[3]));
 
+    // Test simplified mode (default).
     PPCDisasmContext ctx;
-    ctx.instr_addr = 0;          // aligned address
+    ctx.instr_addr = 0;
     ctx.instr_code = opcode;
     ctx.simplified = true;
+    disassemble_single(&ctx);
 
+    // Also test non-simplified (raw) mode to cover both code paths.
+    ctx.instr_addr = 0;
+    ctx.instr_code = opcode;
+    ctx.simplified = false;
     disassemble_single(&ctx);
 
     return 0;

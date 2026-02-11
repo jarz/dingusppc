@@ -84,6 +84,33 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     exec_flags    = 0;
     power_on      = true;
 
+    // Reset MSR to prevent a previous iteration's mtmsr from enabling
+    // address translation (IR/DR), which would abort in the MMU when
+    // no page tables are set up.
+    ppc_state.msr = MSR::ME | MSR::IP | MSR::FP;
+
+    // When extra bytes are available, use them to seed CPU state so the
+    // fuzzer can explore deeper paths (e.g., conditional branches taken
+    // based on CR bits, supervisor instructions, XER-dependent logic).
+    const uint8_t *extra = data + 4;
+    size_t remaining = size - 4;
+
+    if (remaining >= 1) {
+        ppc_state.cr = uint32_t(extra[0]) * 0x01010101u; // spread CR across fields
+    }
+    if (remaining >= 2) {
+        ppc_state.spr[SPR::XER] = uint32_t(extra[1]) << 24; // SO/OV/CA bits
+    }
+    if (remaining >= 6) {
+        // Seed two source GPRs commonly used by instructions.
+        ppc_state.gpr[3] = (uint32_t(extra[2]) << 24) | (uint32_t(extra[3]) << 16) |
+                           (uint32_t(extra[4]) << 8)  |  uint32_t(extra[5]);
+    }
+    if (remaining >= 10) {
+        ppc_state.gpr[4] = (uint32_t(extra[6]) << 24) | (uint32_t(extra[7]) << 16) |
+                           (uint32_t(extra[8]) << 8)  |  uint32_t(extra[9]);
+    }
+
     // Dispatch the fuzzed opcode.
     ppc_main_opcode(ppc_opcode_grabber, opcode);
 

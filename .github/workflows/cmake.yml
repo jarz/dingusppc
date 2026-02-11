@@ -379,7 +379,7 @@ jobs:
       run: >
         timeout 30
         ${{github.workspace}}/build/bin/fuzz_ppc_single_instruction
-        -max_total_time=10 -max_len=4
+        -max_total_time=10 -max_len=14
         || test $? -eq 124
     - name: Smoke-test disassembler fuzzer
       run: >
