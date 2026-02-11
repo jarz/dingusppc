@@ -235,6 +235,7 @@ if (DPPC_BUILD_BENCHMARKS)
         # bench2 validates interpreter dispatch paths complete without crash.
         if (NOT CMAKE_CROSSCOMPILING)
             add_test(NAME ${BENCH_NAME} COMMAND ${BENCH_NAME})
+            set_tests_properties(${BENCH_NAME} PROPERTIES TIMEOUT 60)
         endif()
     endforeach()
 endif()
