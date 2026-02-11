@@ -359,3 +359,40 @@ jobs:
           build/CMakeFiles/CMakeError.log
         if-no-files-found: ignore
         retention-days: 7
+
+  tsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -y -qq
+        sudo apt-get install -y -qq libsdl2-dev ninja-build
+    - name: Configure CMake with TSan
+      run: >
+        cmake -S . -B build -GNinja
+        -DCMAKE_BUILD_TYPE=Debug
+        -DDPPC_68K_DEBUGGER=ON
+        -DDPPC_BUILD_PPC_TESTS=ON
+        -DCMAKE_C_FLAGS="-fsanitize=thread -fno-omit-frame-pointer -g"
+        -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer -g"
+        -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+    - name: Build
+      run: cmake --build build --parallel
+    - name: Test under TSan
+      working-directory: build
+      run: ctest --output-on-failure
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: logs-tsan
+        path: |
+          build/Testing/Temporary/LastTest.log
+          build/CMakeFiles/CMakeOutput.log
+          build/CMakeFiles/CMakeError.log
+        if-no-files-found: ignore
+        retention-days: 7
