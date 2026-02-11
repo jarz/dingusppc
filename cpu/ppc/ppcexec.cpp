@@ -42,12 +42,14 @@ static struct mach_timebase_info timebase_info;
 static uint64_t
 ConvertHostTimeToNanos2(uint64_t host_time)
 {
+    // On Apple Silicon (ARM64), numer == denom == 1, so this is a no-op.
+    // On Intel Macs, numer/denom is typically 125/3.
+    // Use integer multiply+shift instead of long double division to avoid
+    // expensive software floating-point on the hot timer path.
     if (timebase_info.numer == timebase_info.denom)
         return host_time;
-    long double answer = host_time;
-    answer *= timebase_info.numer;
-    answer /= timebase_info.denom;
-    return (uint64_t)answer;
+    return static_cast<uint64_t>(
+        (__uint128_t)host_time * timebase_info.numer / timebase_info.denom);
 }
 #endif
 
