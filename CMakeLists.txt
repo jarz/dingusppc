@@ -51,6 +51,7 @@ endif()
 
 option(DPPC_BUILD_PPC_TESTS  "Build PowerPC tests" OFF)
 option(DPPC_BUILD_BENCHMARKS "Build benchmarking programs" OFF)
+option(DPPC_BUILD_FUZZERS    "Build fuzz targets" OFF)
 
 option(DPPC_68K_DEBUGGER   "Enable 68k debugging" OFF)
 
@@ -228,7 +229,111 @@ if (DPPC_BUILD_PPC_TESTS)
         "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcinttests.csv"
         "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcfloattests.csv"
         "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcdisasmtest.csv"
-        $<TARGET_FILE_DIR:${PROJECT_NAME}>)
+        $<TARGET_FILE_DIR:testppc>)
+endif()
+
+if (DPPC_BUILD_FUZZERS)
+    include(CheckCXXSourceCompiles)
+    set(HAVE_LIBFUZZER OFF)
+
+    # Extra flags for brew/llvm libc++ on macOS to match fuzzer runtime
+    set(FUZZ_CLANG_EXTRA "")
+    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        get_filename_component(CLANG_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        get_filename_component(LLVM_PREFIX "${CLANG_BIN_DIR}/.." REALPATH)
+        execute_process(COMMAND ${CMAKE_CXX_COMPILER} --print-resource-dir OUTPUT_VARIABLE CLANG_RESOURCE_DIR OUTPUT_STRIP_TRAILING_WHITESPACE)
+        set(LLVM_LIBCXX_DIR "${LLVM_PREFIX}/lib/c++")
+        if (EXISTS "${LLVM_LIBCXX_DIR}/libc++.a" OR EXISTS "${LLVM_LIBCXX_DIR}/libc++.dylib")
+            list(APPEND FUZZ_CLANG_EXTRA "-stdlib=libc++" "-L${LLVM_LIBCXX_DIR}" "-Wl,-rpath,${LLVM_LIBCXX_DIR}")
+        endif()
+        if (EXISTS "${LLVM_PREFIX}/include/c++/v1")
+            list(APPEND FUZZ_CLANG_EXTRA "-I${LLVM_PREFIX}/include/c++/v1")
+        endif()
+        if (CLANG_RESOURCE_DIR AND EXISTS "${CLANG_RESOURCE_DIR}/lib/darwin")
+            list(APPEND FUZZ_CLANG_EXTRA "-L${CLANG_RESOURCE_DIR}/lib/darwin" "-Wl,-rpath,${CLANG_RESOURCE_DIR}/lib/darwin")
+        endif()
+    endif()
+
+    if (DEFINED ENV{LIB_FUZZING_ENGINE})
+        set(HAVE_LIBFUZZER ON)
+    endif()
+
+    if (NOT HAVE_LIBFUZZER)
+        # Try compiler resource dir detection
+        execute_process(COMMAND ${CMAKE_CXX_COMPILER} --print-resource-dir OUTPUT_VARIABLE CLANG_RESOURCE_DIR OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if (CLANG_RESOURCE_DIR)
+            if (EXISTS "${CLANG_RESOURCE_DIR}/lib/darwin/libclang_rt.fuzzer_osx.a" OR EXISTS "${CLANG_RESOURCE_DIR}/lib/linux/libclang_rt.fuzzer-x86_64.a" OR EXISTS "${CLANG_RESOURCE_DIR}/lib/linux/libclang_rt.fuzzer-aarch64.a")
+                set(HAVE_LIBFUZZER ON)
+            endif()
+        endif()
+    endif()
+
+    if (NOT HAVE_LIBFUZZER)
+        string(JOIN " " CMAKE_REQUIRED_FLAGS "-fsanitize=fuzzer" ${FUZZ_CLANG_EXTRA})
+        check_cxx_source_compiles("int main(){return 0;}" HAVE_LIBFUZZER)
+        unset(CMAKE_REQUIRED_FLAGS)
+    endif()
+    if (NOT HAVE_LIBFUZZER)
+        message(WARNING "libFuzzer not found. Fuzz targets will be skipped. Install clang with libFuzzer (macOS: brew install llvm; Ubuntu: apt-get install clang-15 libclang-rt-15-dev) or set LIB_FUZZING_ENGINE")
+    endif()
+
+    if (HAVE_LIBFUZZER)
+    set(FUZZ_SAN_FLAGS "-fsanitize=fuzzer,address,undefined" "-fno-sanitize-recover=all" ${FUZZ_CLANG_EXTRA})
+
+    add_executable(fuzz_ppc_insn
+        fuzz/fuzz_ppc_single_instruction.cpp
+        $<TARGET_OBJECTS:core>
+        $<TARGET_OBJECTS:cpu_ppc>
+        $<TARGET_OBJECTS:devices>
+        $<TARGET_OBJECTS:machines>
+        $<TARGET_OBJECTS:utils>
+        $<TARGET_OBJECTS:loguru>)
+    target_include_directories(fuzz_ppc_insn PRIVATE ${PROJECT_SOURCE_DIR})
+    target_compile_definitions(fuzz_ppc_insn PRIVATE PPC_TESTS)
+    target_compile_options(fuzz_ppc_insn PRIVATE ${FUZZ_SAN_FLAGS})
+    target_link_options(fuzz_ppc_insn PRIVATE ${FUZZ_SAN_FLAGS})
+    if (DEFINED ENV{LIB_FUZZING_ENGINE})
+        target_link_libraries(fuzz_ppc_insn PRIVATE $ENV{LIB_FUZZING_ENGINE} SDL2::SDL2main SDL2::SDL2 cubeb ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    else()
+        target_link_libraries(fuzz_ppc_insn PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+
+    add_executable(fuzz_ppc_sequence
+        fuzz/fuzz_ppc_sequence.cpp
+        $<TARGET_OBJECTS:core>
+        $<TARGET_OBJECTS:cpu_ppc>
+        $<TARGET_OBJECTS:devices>
+        $<TARGET_OBJECTS:machines>
+        $<TARGET_OBJECTS:utils>
+        $<TARGET_OBJECTS:loguru>)
+    target_include_directories(fuzz_ppc_sequence PRIVATE ${PROJECT_SOURCE_DIR})
+    target_compile_definitions(fuzz_ppc_sequence PRIVATE PPC_TESTS)
+    target_compile_options(fuzz_ppc_sequence PRIVATE ${FUZZ_SAN_FLAGS})
+    target_link_options(fuzz_ppc_sequence PRIVATE ${FUZZ_SAN_FLAGS})
+    if (DEFINED ENV{LIB_FUZZING_ENGINE})
+        target_link_libraries(fuzz_ppc_sequence PRIVATE $ENV{LIB_FUZZING_ENGINE} SDL2::SDL2main SDL2::SDL2 cubeb ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    else()
+        target_link_libraries(fuzz_ppc_sequence PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+
+    add_executable(fuzz_ppc_disasm
+        fuzz/fuzz_disasm.cpp
+        $<TARGET_OBJECTS:cpu_ppc>
+        $<TARGET_OBJECTS:core>
+        $<TARGET_OBJECTS:devices>
+        $<TARGET_OBJECTS:machines>
+        $<TARGET_OBJECTS:utils>
+        $<TARGET_OBJECTS:loguru>)
+    target_include_directories(fuzz_ppc_disasm PRIVATE ${PROJECT_SOURCE_DIR})
+    target_compile_definitions(fuzz_ppc_disasm PRIVATE PPC_TESTS)
+    target_compile_options(fuzz_ppc_disasm PRIVATE ${FUZZ_SAN_FLAGS})
+    target_link_options(fuzz_ppc_disasm PRIVATE ${FUZZ_SAN_FLAGS})
+    target_link_libraries(fuzz_ppc_disasm PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    if (DEFINED ENV{LIB_FUZZING_ENGINE})
+        target_link_libraries(fuzz_ppc_disasm PRIVATE $ENV{LIB_FUZZING_ENGINE})
+    endif()
+
+    endif() # HAVE_LIBFUZZER
 endif()
 
 install (TARGETS dingusppc DESTINATION ${PROJECT_SOURCE_DIR}/build)

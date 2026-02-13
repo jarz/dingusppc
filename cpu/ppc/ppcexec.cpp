@@ -820,12 +820,13 @@ void ppc_cpu_init(MemCtrlBase* mem_ctrl, uint32_t cpu_version, bool do_include_6
     // initialize emulator timers
     TimerManager::get_instance()->set_time_now_cb(&get_virt_time_ns);
     TimerManager::get_instance()->set_notify_changes_cb(&force_cycle_counter_reload);
+    TimerManager::get_instance()->reset();
 
     // initialize time base facility
 #ifdef __APPLE__
     mach_timebase_info(&timebase_info);
 #endif
-    g_nanoseconds_base = cpu_now_ns();
+    g_nanoseconds_base = is_deterministic ? 0 : cpu_now_ns();
     g_icycles = 0;
 
 //                    //                                        // PDM cpu clock calculated at 0x403036CC in r3

@@ -134,6 +134,7 @@ public:
     void cancel_timer(uint32_t id);
 
     uint64_t process_timers();
+    void reset();
 
 private:
     static TimerManager* timer_manager;

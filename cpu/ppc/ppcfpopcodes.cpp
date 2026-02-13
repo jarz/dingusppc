@@ -29,6 +29,64 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <cinttypes>
 #include <cmath>
 #include <cfloat>
+#include <bit>
+#include <cfenv>
+
+static constexpr uint64_t QNAN_DEFAULT = 0x7ffc000000000000ULL;
+static constexpr uint64_t QNAN_SDEFAULT = 0x7ff8000000000000ULL;
+
+static uint32_t fpscr_invalid_this_op = 0;
+static constexpr uint32_t FPSCR_INVALID_MASK = (VXVC | VXIMZ | VXZDZ | VXIDI | VXISI | VXSNAN | VXCVI);
+inline static void mark_invalid(uint32_t bits) {
+    ppc_state.fpscr |= bits;
+    fpscr_invalid_this_op |= (bits & FPSCR_INVALID_MASK);
+}
+
+struct fp_exception_scope {
+    fp_exception_scope() { std::feclearexcept(FE_ALL_EXCEPT); fpscr_invalid_this_op = 0; }
+};
+
+inline static bool rounded_away_from_zero(double exact, double rounded) {
+    if (exact == rounded) return false;
+    return std::signbit(exact) ? (rounded < exact) : (rounded > exact);
+}
+inline static bool rounded_away_from_zero(long double exact, double rounded) {
+    long double r = static_cast<long double>(rounded);
+    if (exact == r) return false;
+    return std::signbit(exact) ? (r < exact) : (r > exact);
+}
+
+inline static double round_to_zero(long double exact) {
+    int old_rm = fegetround();
+    fesetround(FE_TOWARDZERO);
+    double trunc = static_cast<double>(exact);
+    fesetround(old_rm);
+    return trunc;
+}
+inline static float round_to_zero_float(long double exact) {
+    int old_rm = fegetround();
+    fesetround(FE_TOWARDZERO);
+    float trunc = static_cast<float>(exact);
+    fesetround(old_rm);
+    return trunc;
+}
+inline static bool fraction_rounded(long double exact, double rounded) {
+    long double r = static_cast<long double>(rounded);
+    if (exact == r) return false;
+    double trunc = round_to_zero(exact);
+    if (rounded == trunc) return false;
+    return std::fabs(rounded) > std::fabs(trunc);
+}
+inline static bool fraction_rounded_single(long double exact, double rounded) {
+    long double r = static_cast<long double>(rounded);
+    if (exact == r) return false;
+    float trunc = round_to_zero_float(exact);
+    if (static_cast<float>(rounded) == trunc) return false;
+    return std::fabs(static_cast<float>(rounded)) > std::fabs(trunc);
+}
+
+static void ppc_update_vx();
+static void ppc_update_fex();
 
 inline static void ppc_update_cr1() {
     // copy FPSCR[FX|FEX|VX|OX] to CR1
@@ -85,7 +143,7 @@ inline static bool check_snan(int check_reg) {
 
 inline static bool snan_single_check(int reg_a) {
     if (check_snan(reg_a)) {
-        ppc_state.fpscr |= FX | VX | VXSNAN;
+        mark_invalid(FX | VX | VXSNAN);
         return true;
     }
     return false;
@@ -93,7 +151,7 @@ inline static bool snan_single_check(int reg_a) {
 
 inline static bool snan_double_check(int reg_a, int reg_b) {
     if (check_snan(reg_a) || check_snan(reg_b)) {
-        ppc_state.fpscr |= FX | VX | VXSNAN;
+        mark_invalid(FX | VX | VXSNAN);
         return true;
     }
     return false;
@@ -111,37 +169,93 @@ inline static bool check_qnan(int check_reg) {
         ((check_int & (0x1ULL << 51)) == (0x1ULL << 51)));
 }
 
-static double set_endresult_nan(double ppc_result_d) {
-    ppc_state.fpscr += (FX + VX);
-    return std::numeric_limits<double>::quiet_NaN();
+inline static bool fpscr_invalid_raised() {
+    return fpscr_invalid_this_op;
+}
+inline static bool fpscr_invalid_enabled() {
+    return (ppc_state.fpscr & FPSCR::VE) && fpscr_invalid_this_op;
 }
 
-static void fpresult_update(double set_result) {
-    if (std::isnan(set_result)) {
-        ppc_state.fpscr |= FPCC_FUNAN | FPRCD;
-    } else {
-        if (set_result > 0.0) {
-            ppc_state.fpscr |= FPCC_POS;
-        } else if (set_result < 0.0) {
-            ppc_state.fpscr |= FPCC_NEG;
+inline static double make_invalid_nan() {
+    return std::bit_cast<double>(QNAN_SDEFAULT);
+}
+inline static double make_quiet_nan() {
+    return std::bit_cast<double>(QNAN_DEFAULT);
+}
+inline static double select_nan(bool invalid) {
+    return invalid ? make_invalid_nan() : make_quiet_nan();
+}
+inline static uint64_t select_nan_bits(bool invalid) {
+    return invalid ? QNAN_SDEFAULT : QNAN_DEFAULT;
+}
+inline static void set_fr_single(long double exact_ld, double rounded) {
+    if (std::isinf(rounded)) return; // no FR for overflow→inf
+    if (fraction_rounded_single(exact_ld, rounded))
+        ppc_state.fpscr |= FR;
+}
+inline static void set_fr_double(long double exact_ld, double rounded) {
+    if (std::isinf(rounded)) return; // no FR for overflow→inf
+    if (fraction_rounded(exact_ld, rounded))
+        ppc_state.fpscr |= FR;
+}
+inline static double canonicalize_quiet_nan(double v) {
+    return std::isnan(v) ? make_quiet_nan() : v;
+}
+
+static double set_endresult_nan(double ppc_result_d) {
+    mark_invalid(FX | VX);
+    return make_invalid_nan();
+}
+
+static void fpresult_update(double set_result, bool single_precision = false) {
+    bool invalid = fpscr_invalid_raised();
+    bool invalid_enabled = fpscr_invalid_enabled();
+
+    uint32_t old_fpscr = ppc_state.fpscr;
+
+    // Clear FPRF (FPCC + FPRCD) and FR/FI for non-conversion ops
+    ppc_state.fpscr &= ~(FPSCR::FPRF_MASK | FPSCR::FR | FPSCR::FI);
+
+    if (!invalid_enabled) {
+        bool is_nan = std::isnan(set_result);
+        if (is_nan) {
+            ppc_state.fpscr |= FPCC_FUNAN | FPRCD;
         } else {
-            ppc_state.fpscr |= FPCC_ZERO;
-        }
+            if (std::isinf(set_result)) {
+                ppc_state.fpscr |= std::signbit(set_result) ? FPCC_NEG : FPCC_POS;
+                ppc_state.fpscr |= FPCC_FUNAN;
+            } else {
+                if (set_result > 0.0) {
+                    ppc_state.fpscr |= FPCC_POS;
+                } else if (set_result < 0.0) {
+                    ppc_state.fpscr |= FPCC_NEG;
+                } else {
+                    ppc_state.fpscr |= FPCC_ZERO;
+                }
+            }
 
-        if (std::fetestexcept(FE_OVERFLOW)) {
-            ppc_state.fpscr |= (OX + FX);
-        }
-        if (std::fetestexcept(FE_UNDERFLOW)) {
-            ppc_state.fpscr |= (UX + FX);
-        }
-        if (std::fetestexcept(FE_DIVBYZERO)) {
-            ppc_state.fpscr |= (ZX + FX);
-        }
+            int fex = std::fetestexcept(FE_OVERFLOW | FE_UNDERFLOW | FE_DIVBYZERO | FE_INEXACT);
+            if (fex) {
+                if (fex & FE_OVERFLOW)  ppc_state.fpscr |= (OX | FX);
+                if (fex & FE_UNDERFLOW) ppc_state.fpscr |= (UX | FX);
+                if (fex & FE_DIVBYZERO) ppc_state.fpscr |= (ZX | FX);
+                if (fex & FE_INEXACT)   ppc_state.fpscr |= (XX | FX | FI);
+            }
 
-        std::feclearexcept(FE_ALL_EXCEPT);
+            int cls = single_precision ? std::fpclassify(static_cast<float>(set_result)) : std::fpclassify(set_result);
+            if (cls == FP_SUBNORMAL || (cls == FP_ZERO && std::signbit(set_result))) {
+                ppc_state.fpscr |= FPRCD;
+            }
+        }
+    }
 
-        if (std::isinf(set_result))
-            ppc_state.fpscr |= FPCC_FUNAN;
+    // If invalid occurred, ensure FX is set
+    if (invalid)
+        ppc_state.fpscr |= FX;
+
+    if (ppc_state.fpscr != old_fpscr) {
+        ppc_update_vx();
+        ppc_update_fex();
     }
 }
 
@@ -154,17 +268,22 @@ static void ppc_update_vx() {
 }
 
 static void ppc_update_fex() {
-    uint32_t fpscr_check = (ppc_state.fpscr >> 22) & ppc_state.fpscr & 0x0F8;
-    if (fpscr_check)
-        ppc_state.fpscr |= VX;
+    bool invalid = (ppc_state.fpscr & FPSCR::VE) && (ppc_state.fpscr & (VXVC | VXIMZ | VXZDZ | VXIDI | VXISI | VXSNAN));
+    bool divzero = (ppc_state.fpscr & FPSCR::ZE) && (ppc_state.fpscr & ZX);
+    bool underflow = (ppc_state.fpscr & FPSCR::UE) && (ppc_state.fpscr & UX);
+    bool overflow = (ppc_state.fpscr & FPSCR::OE) && (ppc_state.fpscr & OX);
+    bool inexact = (ppc_state.fpscr & FPSCR::XE) && (ppc_state.fpscr & XX);
+    if (invalid || divzero || underflow || overflow || inexact)
+        ppc_state.fpscr |= FEX;
     else
-        ppc_state.fpscr &= ~VX;
+        ppc_state.fpscr &= ~FEX;
 }
 
 // Floating Point Arithmetic
 template <field_rc rec>
 void dppc_interpreter::ppc_fadd(uint32_t opcode) {
     ppc_grab_regsfpdab(opcode);
+    fp_exception_scope fp_scope;
 
     max_double_check(val_reg_a, val_reg_b);
 
@@ -173,21 +292,31 @@ void dppc_interpreter::ppc_fadd(uint32_t opcode) {
     double inf = std::numeric_limits<double>::infinity();
     if (((val_reg_a == inf) && (val_reg_b == -inf)) || \
         ((val_reg_a == -inf) && (val_reg_b == inf))) {
-        ppc_state.fpscr |= VXISI;
+        mark_invalid(VXISI);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
-    if (snan_double_check(reg_a, reg_b)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_double_check(reg_a, reg_b);
+    bool invalid_en = fpscr_invalid_enabled();
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
-    }
-    else {
+        fpresult_update(make_quiet_nan());
+    } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        long double exact_ld = (long double)val_reg_a + (long double)val_reg_b;
+        set_fr_double(exact_ld, ppc_dblresult64_d);
+    }
+
 
     if (rec)
         ppc_update_cr1();
@@ -199,25 +328,39 @@ template void dppc_interpreter::ppc_fadd<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fsub(uint32_t opcode) {
     ppc_grab_regsfpdab(opcode);
+    fp_exception_scope fp_scope;
 
     double ppc_dblresult64_d = val_reg_a - val_reg_b;
 
     double inf = std::numeric_limits<double>::infinity();
-    if ((val_reg_a == inf) && (val_reg_b == inf)) {
-        ppc_state.fpscr |= VXISI;
+    if (((val_reg_a == inf) && (val_reg_b == inf)) ||
+        ((val_reg_a == -inf) && (val_reg_b == -inf))) {
+        mark_invalid(VXISI);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
-    if (snan_double_check(reg_a, reg_b)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_double_check(reg_a, reg_b);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan());
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        long double exact_ld = (long double)val_reg_a - (long double)val_reg_b;
+        set_fr_double(exact_ld, ppc_dblresult64_d);
+    }
+
 
     if (rec)
         ppc_update_cr1();
@@ -229,6 +372,7 @@ template void dppc_interpreter::ppc_fsub<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fdiv(uint32_t opcode) {
     ppc_grab_regsfpdab(opcode);
+    fp_exception_scope fp_scope;
 
     double ppc_dblresult64_d;
 
@@ -249,25 +393,38 @@ void dppc_interpreter::ppc_fdiv(uint32_t opcode) {
     }
 
     if (std::isinf(val_reg_a) && std::isinf(val_reg_b)) {
-        ppc_state.fpscr |= VXIDI;
+        mark_invalid(VXIDI);
     }
 
     if ((val_reg_a == 0.0) && (val_reg_b == 0.0)) {
-        ppc_state.fpscr |= VXZDZ;
+        mark_invalid(VXZDZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
-    if (snan_double_check(reg_a, reg_b)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_double_check(reg_a, reg_b);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0);
+    } else if (snan) {
+        uint64_t qnan = std::isnan(val_reg_a)
+            ? (FPR_INT(reg_a) | (0x1ULL << 51))
+            : (FPR_INT(reg_b) | (0x1ULL << 51));
         ppc_store_fpresult_int(reg_d, qnan);
-    }
-    else {
+        fpresult_update(make_quiet_nan());
+    } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        long double exact_ld = (long double)val_reg_a / (long double)val_reg_b;
+        set_fr_double(exact_ld, ppc_dblresult64_d);
+    }
+
 
     if (rec)
         ppc_update_cr1();
@@ -279,12 +436,13 @@ template void dppc_interpreter::ppc_fdiv<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fmul(uint32_t opcode) {
     ppc_grab_regsfpdac(opcode);
+    fp_exception_scope fp_scope;
 
     double ppc_dblresult64_d = val_reg_a * val_reg_c;
 
     if ((std::isinf(val_reg_a) && (val_reg_c == 0.0)) ||
         (std::isinf(val_reg_c) && (val_reg_a == 0.0))) {
-        ppc_state.fpscr |= VXIMZ;
+        mark_invalid(VXIMZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
@@ -294,14 +452,26 @@ void dppc_interpreter::ppc_fmul(uint32_t opcode) {
         ppc_dblresult64_d = std::numeric_limits<double>::quiet_NaN();
     }
 
-    if (snan_double_check(reg_a, reg_c)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_double_check(reg_a, reg_c);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan());
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        long double exact_ld = (long double)val_reg_a * (long double)val_reg_c;
+        set_fr_double(exact_ld, ppc_dblresult64_d);
+    }
+
 
     if (rec)
         ppc_update_cr1();
@@ -313,13 +483,15 @@ template void dppc_interpreter::ppc_fmul<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fmadd(uint32_t opcode) {
     ppc_grab_regsfpdabc(opcode);
+    fp_exception_scope fp_scope;
 
+    double primary_term = val_reg_a * val_reg_c;
     double ppc_dblresult64_d = std::fma(val_reg_a, val_reg_c, val_reg_b);
 
     double inf = std::numeric_limits<double>::infinity();
     if (((val_reg_a == inf) && (val_reg_b == -inf)) || \
         ((val_reg_a == -inf) && (val_reg_b == inf))) {
-        ppc_state.fpscr |= VXISI;
+        mark_invalid(VXISI);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
@@ -327,20 +499,31 @@ void dppc_interpreter::ppc_fmadd(uint32_t opcode) {
 
     if ((std::isinf(val_reg_a) && (val_reg_c == 0.0)) ||
         (std::isinf(val_reg_c) && (val_reg_a == 0.0))) {
-        ppc_state.fpscr |= VXIMZ;
+        mark_invalid(VXIMZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
-    if (snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan());
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        long double exact_ld = (long double)val_reg_a * (long double)val_reg_c + (long double)val_reg_b;
+        set_fr_double(exact_ld, ppc_dblresult64_d);
+    }
 
     if (rec)
         ppc_update_cr1();
@@ -352,12 +535,14 @@ template void dppc_interpreter::ppc_fmadd<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fmsub(uint32_t opcode) {
     ppc_grab_regsfpdabc(opcode);
+    fp_exception_scope fp_scope;
 
+    double primary_term = val_reg_a * val_reg_c;
     double ppc_dblresult64_d = std::fma(val_reg_a, val_reg_c, -val_reg_b);
 
     if ((std::isinf(val_reg_a) && (val_reg_c == 0.0)) ||
         (std::isinf(val_reg_c) && (val_reg_a == 0.0))) {
-        ppc_state.fpscr |= VXIMZ;
+        mark_invalid(VXIMZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
@@ -365,24 +550,36 @@ void dppc_interpreter::ppc_fmsub(uint32_t opcode) {
 
     double inf = std::numeric_limits<double>::infinity();
     if (((val_reg_a == inf) && (val_reg_b == -inf)) || ((val_reg_a == -inf) && (val_reg_b == inf))) {
-        ppc_state.fpscr |= VXISI;
+        mark_invalid(VXISI);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
     if (std::isnan(val_reg_a) || std::isnan(val_reg_b) || std::isnan(val_reg_c)) {
-        ppc_dblresult64_d = std::numeric_limits<double>::quiet_NaN();
+        ppc_dblresult64_d = make_invalid_nan();
     }
 
-    if (snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan());
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        long double exact_ld = (long double)val_reg_a * (long double)val_reg_c - (long double)val_reg_b;
+        set_fr_double(exact_ld, ppc_dblresult64_d);
+    }
+
 
     if (rec)
         ppc_update_cr1();
@@ -394,16 +591,19 @@ template void dppc_interpreter::ppc_fmsub<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fnmadd(uint32_t opcode) {
     ppc_grab_regsfpdabc(opcode);
+    fp_exception_scope fp_scope;
 
-    double ppc_dblresult64_d = -std::fma(val_reg_a, val_reg_c, val_reg_b);
+    double primary_term = -(val_reg_a * val_reg_c);
+    double ppc_dblresult64_d = std::fma(val_reg_a, val_reg_c, val_reg_b);
+    ppc_dblresult64_d = -ppc_dblresult64_d;
 
     if (std::isnan(ppc_dblresult64_d)) {
-        ppc_dblresult64_d = std::numeric_limits<double>::quiet_NaN();
+        ppc_dblresult64_d = make_invalid_nan();
     }
 
     double inf = std::numeric_limits<double>::infinity();
     if (((val_reg_a == inf) && (val_reg_b == -inf)) || ((val_reg_a == -inf) && (val_reg_b == inf))) {
-        ppc_state.fpscr |= VXISI;
+        mark_invalid(VXISI);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
@@ -411,21 +611,32 @@ void dppc_interpreter::ppc_fnmadd(uint32_t opcode) {
 
     if ((std::isinf(val_reg_a) && (val_reg_c == 0.0)) ||
         (std::isinf(val_reg_c) && (val_reg_a == 0.0))) {
-        ppc_state.fpscr |= VXIMZ;
+        mark_invalid(VXIMZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
-    if (snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan());
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d);
     }
 
-    ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        long double exact_ld = -((long double)val_reg_a * (long double)val_reg_c + (long double)val_reg_b);
+        set_fr_double(exact_ld, ppc_dblresult64_d);
+    }
+
 
     if (rec)
         ppc_update_cr1();
@@ -437,12 +648,15 @@ template void dppc_interpreter::ppc_fnmadd<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fnmsub(uint32_t opcode) {
     ppc_grab_regsfpdabc(opcode);
+    fp_exception_scope fp_scope;
 
-    double ppc_dblresult64_d = -std::fma(val_reg_a, val_reg_c, -val_reg_b);
+    double primary_term = -(val_reg_a * val_reg_c);
+    double ppc_dblresult64_d = std::fma(val_reg_a, val_reg_c, -val_reg_b);
+    ppc_dblresult64_d = -ppc_dblresult64_d;
 
     if ((std::isinf(val_reg_a) && (val_reg_c == 0.0)) ||
         (std::isinf(val_reg_c) && (val_reg_a == 0.0))) {
-        ppc_state.fpscr |= VXIMZ;
+        mark_invalid(VXIMZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
@@ -450,20 +664,32 @@ void dppc_interpreter::ppc_fnmsub(uint32_t opcode) {
 
     double inf = std::numeric_limits<double>::infinity();
     if (((val_reg_a == inf) && (val_reg_b == -inf)) || ((val_reg_a == -inf) && (val_reg_b == inf))) {
-        ppc_state.fpscr |= VXISI;
+        mark_invalid(VXISI);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
-    if (snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan());
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        long double exact_ld = -((long double)val_reg_a * (long double)val_reg_c - (long double)val_reg_b);
+        set_fr_double(exact_ld, ppc_dblresult64_d);
+    }
+
 
     if (rec)
         ppc_update_cr1();
@@ -475,27 +701,38 @@ template void dppc_interpreter::ppc_fnmsub<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fadds(uint32_t opcode) {
     ppc_grab_regsfpdab(opcode);
+    fp_exception_scope fp_scope;
 
     max_double_check(val_reg_a, val_reg_b);
 
-    double ppc_dblresult64_d = (float)(val_reg_a + val_reg_b);
+    long double exact_ld = (long double)val_reg_a + (long double)val_reg_b;
+    double ppc_dblresult64_d = (float)(exact_ld);
 
     double inf = std::numeric_limits<double>::infinity();
     if (((val_reg_a == inf) && (val_reg_b == -inf)) || ((val_reg_a == -inf) && (val_reg_b == inf))) {
-        ppc_state.fpscr |= VXISI;
+        mark_invalid(VXISI);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
-    if (snan_double_check(reg_a, reg_b)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_double_check(reg_a, reg_b);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0, true);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan(), true);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d, true);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI)
+        set_fr_single(exact_ld, ppc_dblresult64_d);
 
     if (rec)
         ppc_update_cr1();
@@ -507,26 +744,38 @@ template void dppc_interpreter::ppc_fadds<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fsubs(uint32_t opcode) {
     ppc_grab_regsfpdab(opcode);
+    fp_exception_scope fp_scope;
 
-    double ppc_dblresult64_d = (float)(val_reg_a - val_reg_b);
+    long double exact_ld = (long double)val_reg_a - (long double)val_reg_b;
+    double ppc_dblresult64_d = (float)(exact_ld);
 
     double inf = std::numeric_limits<double>::infinity();
     if (((val_reg_a == inf) && (val_reg_b == inf)) ||
         ((val_reg_a == -inf) && (val_reg_b == -inf))) {
-        ppc_state.fpscr |= VXISI;
+        mark_invalid(VXISI);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
-    if (snan_double_check(reg_a, reg_b)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_double_check(reg_a, reg_b);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0, true);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan(), true);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d, true);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        set_fr_single(exact_ld, ppc_dblresult64_d);
+    }
 
     if (rec)
         ppc_update_cr1();
@@ -538,35 +787,49 @@ template void dppc_interpreter::ppc_fsubs<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fdivs(uint32_t opcode) {
     ppc_grab_regsfpdab(opcode);
+    fp_exception_scope fp_scope;
 
-    double ppc_dblresult64_d = (float)(val_reg_a / val_reg_b);
+    long double exact_ld = (long double)val_reg_a / (long double)val_reg_b;
+    double ppc_dblresult64_d = (float)(exact_ld);
     if (val_reg_b == 0.0) {
         ppc_state.fpscr |= FX | VX;
     }
 
     if (std::isinf(val_reg_a) && std::isinf(val_reg_b)) {
-        ppc_state.fpscr |= VXIDI;
+        mark_invalid(VXIDI);
     }
 
     if ((val_reg_a == 0.0) && (val_reg_b == 0.0)) {
-        ppc_state.fpscr |= VXZDZ;
+        mark_invalid(VXZDZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
     if (std::isnan(val_reg_a) || std::isnan(val_reg_b)) {
-        ppc_dblresult64_d = std::numeric_limits<double>::quiet_NaN();
+        ppc_dblresult64_d = make_invalid_nan();
     }
 
-    if (snan_double_check(reg_a, reg_b)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_double_check(reg_a, reg_b);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0, true);
+    } else if (snan) {
+        uint64_t qnan = std::isnan(val_reg_a)
+            ? (FPR_INT(reg_a) | (0x1ULL << 51))
+            : (FPR_INT(reg_b) | (0x1ULL << 51));
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan(), true);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d, true);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        set_fr_single(exact_ld, ppc_dblresult64_d);
+    }
 
     if (rec)
         ppc_update_cr1();
@@ -578,29 +841,41 @@ template void dppc_interpreter::ppc_fdivs<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fmuls(uint32_t opcode) {
     ppc_grab_regsfpdac(opcode);
+    fp_exception_scope fp_scope;
 
-    double ppc_dblresult64_d = (float)(val_reg_a * val_reg_c);
+    long double exact_ld = (long double)val_reg_a * (long double)val_reg_c;
+    double ppc_dblresult64_d = (float)(exact_ld);
 
     if ((std::isinf(val_reg_a) && (val_reg_c == 0.0)) ||
         (std::isinf(val_reg_c) && (val_reg_a == 0.0))) {
-        ppc_state.fpscr |= VXIMZ;
+        mark_invalid(VXIMZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
     if (std::isnan(val_reg_a) || std::isnan(val_reg_c)) {
-        ppc_dblresult64_d = std::numeric_limits<double>::quiet_NaN();
+        ppc_dblresult64_d = make_invalid_nan();
     }
 
-    if (snan_double_check(reg_a, reg_c)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_double_check(reg_a, reg_c);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0, true);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan(), true);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d, true);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        set_fr_single(exact_ld, ppc_dblresult64_d);
+    }
 
     if (rec)
         ppc_update_cr1();
@@ -612,30 +887,42 @@ template void dppc_interpreter::ppc_fmuls<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fmadds(uint32_t opcode) {
     ppc_grab_regsfpdabc(opcode);
+    fp_exception_scope fp_scope;
 
-    double ppc_dblresult64_d = (float)std::fma(val_reg_a, val_reg_c, val_reg_b);
+    double primary_term = val_reg_a * val_reg_c;
+    long double exact_ld = (long double)val_reg_a * (long double)val_reg_c + (long double)val_reg_b;
+    double ppc_dblresult64_d = (float)exact_ld;
 
     double inf = std::numeric_limits<double>::infinity();
     if (((val_reg_a == inf) && (val_reg_b == -inf)) || ((val_reg_a == -inf) && (val_reg_b == inf)))
-        ppc_state.fpscr |= VXISI;
+        mark_invalid(VXISI);
 
     if ((std::isinf(val_reg_a) && (val_reg_c == 0.0)) ||
         (std::isinf(val_reg_c) && (val_reg_a == 0.0))) {
-        ppc_state.fpscr |= VXIMZ;
+        mark_invalid(VXIMZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
-    if (snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0, true);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan(), true);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d, true);
     }
 
-    ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        set_fr_single(exact_ld, ppc_dblresult64_d);
+    }
 
     if (rec)
         ppc_update_cr1();
@@ -647,12 +934,15 @@ template void dppc_interpreter::ppc_fmadds<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fmsubs(uint32_t opcode) {
     ppc_grab_regsfpdabc(opcode);
+    fp_exception_scope fp_scope;
 
-    double ppc_dblresult64_d = (float)std::fma(val_reg_a, val_reg_c, -val_reg_b);
+    double primary_term = val_reg_a * val_reg_c;
+    long double exact_ld = (long double)val_reg_a * (long double)val_reg_c - (long double)val_reg_b;
+    double ppc_dblresult64_d = (float)exact_ld;
 
     if ((std::isinf(val_reg_a) && (val_reg_c == 0.0)) ||
         (std::isinf(val_reg_c) && (val_reg_a == 0.0))) {
-        ppc_state.fpscr |= VXIMZ;
+        mark_invalid(VXIMZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
@@ -660,16 +950,30 @@ void dppc_interpreter::ppc_fmsubs(uint32_t opcode) {
 
     double inf = std::numeric_limits<double>::infinity();
     if ((val_reg_a == inf) && (val_reg_b == inf))
-        ppc_state.fpscr |= VXISI;
+        mark_invalid(VXISI);
 
-    if (snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c)) {
-        uint64_t qnan = 0x7FFC000000000000;
-        ppc_store_fpresult_int(reg_d, qnan);
-    } else {
-        ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+    if (std::isnan(val_reg_a) || std::isnan(val_reg_b) || std::isnan(val_reg_c)) {
+        ppc_dblresult64_d = make_invalid_nan();
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    bool snan = snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0, true);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
+        ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan(), true);
+    } else {
+        ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d, true);
+    }
+
+    if (ppc_state.fpscr & FI) {
+        set_fr_single(exact_ld, ppc_dblresult64_d);
+    }
 
     if (rec)
         ppc_update_cr1();
@@ -681,32 +985,46 @@ template void dppc_interpreter::ppc_fmsubs<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fnmadds(uint32_t opcode) {
     ppc_grab_regsfpdabc(opcode);
+    fp_exception_scope fp_scope;
 
-    double ppc_dblresult64_d = -(float)std::fma(val_reg_a, val_reg_c, val_reg_b);
+    double primary_term = -(val_reg_a * val_reg_c);
+    long double exact_ld = (long double)val_reg_a * (long double)val_reg_c + (long double)val_reg_b;
+    exact_ld = -exact_ld;
+    double ppc_dblresult64_d = (float)exact_ld;
     if (std::isnan(ppc_dblresult64_d)) {
-        ppc_dblresult64_d = std::numeric_limits<double>::quiet_NaN();
+        ppc_dblresult64_d = make_invalid_nan();
     }
 
     double inf = std::numeric_limits<double>::infinity();
     if (((val_reg_a == inf) && (val_reg_b == -inf)) || ((val_reg_a == -inf) && (val_reg_b == inf)))
-        ppc_state.fpscr |= VXISI;
+        mark_invalid(VXISI);
 
     if ((std::isinf(val_reg_a) && (val_reg_c == 0.0)) ||
         (std::isinf(val_reg_c) && (val_reg_a == 0.0))) {
-        ppc_state.fpscr |= VXIMZ;
+        mark_invalid(VXIMZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
     }
 
-    if (snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool snan = snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c);
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0, true);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan(), true);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d, true);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        set_fr_single(exact_ld, ppc_dblresult64_d);
+    }
 
     if (rec)
         ppc_update_cr1();
@@ -718,15 +1036,18 @@ template void dppc_interpreter::ppc_fnmadds<RC1>(uint32_t opcode);
 template <field_rc rec>
 void dppc_interpreter::ppc_fnmsubs(uint32_t opcode) {
     ppc_grab_regsfpdabc(opcode);
+    fp_exception_scope fp_scope;
 
-    snan_double_check(reg_a, reg_c);
-    snan_single_check(reg_b);
+    bool snan = snan_double_check(reg_a, reg_c) || snan_single_check(reg_b);
 
-    double ppc_dblresult64_d = -(float)std::fma(val_reg_a, val_reg_c, -val_reg_b);
+    double primary_term = -(val_reg_a * val_reg_c);
+    long double exact_ld = (long double)val_reg_a * (long double)val_reg_c - (long double)val_reg_b;
+    exact_ld = -exact_ld;
+    double ppc_dblresult64_d = (float)exact_ld;
 
     if ((std::isinf(val_reg_a) && (val_reg_c == 0.0)) ||
         (std::isinf(val_reg_c) && (val_reg_a == 0.0))) {
-        ppc_state.fpscr |= VXIMZ;
+        mark_invalid(VXIMZ);
         if (std::isnan(ppc_dblresult64_d)) {
             ppc_dblresult64_d = set_endresult_nan(ppc_dblresult64_d);
         }
@@ -734,20 +1055,29 @@ void dppc_interpreter::ppc_fnmsubs(uint32_t opcode) {
 
     double inf = std::numeric_limits<double>::infinity();
     if ((val_reg_a == inf) && (val_reg_b == inf))
-        ppc_state.fpscr |= VXISI;
+        mark_invalid(VXISI);
 
     if (std::isnan(val_reg_a) || std::isnan(val_reg_b) || std::isnan(val_reg_c)) {
-        ppc_dblresult64_d = std::numeric_limits<double>::quiet_NaN();
+        ppc_dblresult64_d = make_invalid_nan();
     }
 
-    if (snan_single_check(reg_a) || snan_single_check(reg_b) || snan_single_check(reg_c)) {
-        uint64_t qnan = 0x7FFC000000000000;
+    bool invalid_en = fpscr_invalid_enabled();
+
+    if (invalid_en) {
+        ppc_store_fpresult_flt(reg_d, 0.0);
+        fpresult_update(0.0, true);
+    } else if (snan) {
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan(), true);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d, true);
     }
 
-    fpresult_update(ppc_dblresult64_d);
+    if (ppc_state.fpscr & FI) {
+        set_fr_single(exact_ld, ppc_dblresult64_d);
+    }
 
     if (rec)
         ppc_update_cr1();
@@ -830,7 +1160,7 @@ void dppc_interpreter::ppc_fsqrt(uint32_t opcode) {
     double ppc_dblresult64_d = std::sqrt(testd2);
 
     if (snan_single_check(reg_b)) {
-        uint64_t qnan = 0x7FFC000000000000;
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
@@ -851,7 +1181,7 @@ void dppc_interpreter::ppc_fsqrts(uint32_t opcode) {
     double ppc_dblresult64_d = (float)std::sqrt(testd2);
 
     if (snan_single_check(reg_b)) {
-        uint64_t qnan = 0x7FFC000000000000;
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
@@ -872,7 +1202,7 @@ void dppc_interpreter::ppc_frsqrte(uint32_t opcode) {
     double ppc_dblresult64_d = 1.0 / sqrt(testd2);
 
     if (snan_single_check(reg_b)) {
-        uint64_t qnan = 0x7FFC000000000000;
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
@@ -889,13 +1219,21 @@ template <field_rc rec>
 void dppc_interpreter::ppc_frsp(uint32_t opcode) {
     ppc_grab_regsfpdb(opcode);
 
-    double ppc_dblresult64_d = (float)(GET_FPR(reg_b));
+    double exact = GET_FPR(reg_b);
+    long double exact_ld = exact;
+    double ppc_dblresult64_d = (float)(exact);
 
     if (snan_single_check(reg_b)) {
-        uint64_t qnan = 0x7FFC000000000000;
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan(), true);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d, true);
+    }
+
+    if (ppc_state.fpscr & FI) {
+        set_fr_single(exact_ld, ppc_dblresult64_d);
     }
 
     if (rec)
@@ -910,7 +1248,8 @@ void dppc_interpreter::ppc_fres(uint32_t opcode) {
     ppc_grab_regsfpdb(opcode);
 
     double start_num = GET_FPR(reg_b);
-    double ppc_dblresult64_d = (float)(1.0 / start_num);
+    long double exact_ld = 1.0L / (long double)start_num;
+    double ppc_dblresult64_d = (float)(exact_ld);
 
     if (start_num == 0.0) {
         ppc_state.fpscr |= FPSCR::ZX;
@@ -924,10 +1263,16 @@ void dppc_interpreter::ppc_fres(uint32_t opcode) {
     }
 
     if (snan_single_check(reg_b)) {
-        uint64_t qnan = 0x7FFC000000000000;
+        uint64_t qnan = QNAN_DEFAULT;
         ppc_store_fpresult_int(reg_d, qnan);
+        fpresult_update(make_quiet_nan(), true);
     } else {
         ppc_store_fpresult_flt(reg_d, ppc_dblresult64_d);
+        fpresult_update(ppc_dblresult64_d, true);
+    }
+
+    if (ppc_state.fpscr & FI) {
+        set_fr_single(exact_ld, ppc_dblresult64_d);
     }
 
     if (rec)
@@ -941,12 +1286,14 @@ static void round_to_int(uint32_t opcode, const uint8_t mode, field_rc rec) {
     ppc_grab_regsfpdb(opcode);
     double val_reg_b = GET_FPR(reg_b);
 
+    // Clear FR/FI for this conversion
+    ppc_state.fpscr &= ~(FPSCR::FR | FPSCR::FI);
+
     if (std::isnan(val_reg_b)) {
-        ppc_state.fpscr &= ~(FPSCR::FR | FPSCR::FI);
-        ppc_state.fpscr |= (FPSCR::VXCVI | FPSCR::VX);
+        mark_invalid(FPSCR::VXCVI | FPSCR::VX | FX);
 
         if (check_snan(reg_b)) // issnan
-            ppc_state.fpscr |= FPSCR::VXSNAN;
+            ;
 
         if (ppc_state.fpscr & FPSCR::VE) {
             ppc_state.fpscr |= FPSCR::FEX; // VX=1 and VE=1 cause FEX to be set
@@ -957,7 +1304,7 @@ static void round_to_int(uint32_t opcode, const uint8_t mode, field_rc rec) {
     } else if (val_reg_b >  static_cast<double>(0x7fffffff) ||
                val_reg_b < -static_cast<double>(0x80000000)) {
         ppc_state.fpscr &= ~(FPSCR::FR | FPSCR::FI);
-        ppc_state.fpscr |= (FPSCR::VXCVI | FPSCR::VX);
+        mark_invalid(FPSCR::VXCVI | FPSCR::VX | FX);
 
         if (ppc_state.fpscr & FPSCR::VE) {
             ppc_state.fpscr |= FPSCR::FEX; // VX=1 and VE=1 cause FEX to be set
@@ -970,6 +1317,8 @@ static void round_to_int(uint32_t opcode, const uint8_t mode, field_rc rec) {
         }
     } else {
         uint64_t ppc_result64_d;
+        double truncv = std::trunc(val_reg_b);
+        bool frac = (val_reg_b != truncv);
         switch (mode & 0x3) {
         case 0:
             ppc_result64_d = uint32_t(round_to_nearest(val_reg_b));
@@ -983,6 +1332,10 @@ static void round_to_int(uint32_t opcode, const uint8_t mode, field_rc rec) {
         case 3:
             ppc_result64_d = uint32_t(round_to_neg_inf(val_reg_b));
             break;
+        }
+
+        if (frac) {
+            ppc_state.fpscr |= (FPSCR::FI | FPSCR::FR | FPSCR::XX | FPSCR::FX);
         }
 
         ppc_result64_d |= 0xFFF8000000000000ULL;

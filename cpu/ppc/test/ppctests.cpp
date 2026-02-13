@@ -30,6 +30,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <sstream>
 #include <string>
 #include <vector>
+#include <filesystem>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#include <limits.h>
+#elif defined(__linux__)
+#include <unistd.h>
+#include <limits.h>
+#endif
 
 using namespace std;
 
@@ -86,13 +94,51 @@ void xer_update_test() {
 }
 
 /** testing vehicle */
+static bool open_csv(std::ifstream &stream, const std::string &filename) {
+    namespace fs = std::filesystem;
+    std::vector<fs::path> candidates;
+    candidates.emplace_back(filename);
+    candidates.emplace_back(fs::path("cpu/ppc/test") / filename);
+#ifdef DPPC_SOURCE_DIR
+    candidates.emplace_back(fs::path(DPPC_SOURCE_DIR) / "cpu/ppc/test" / filename);
+#endif
+#ifdef __APPLE__
+    {
+        char buf[PATH_MAX]; uint32_t sz = sizeof(buf);
+        if (_NSGetExecutablePath(buf, &sz) == 0) {
+            fs::path exe = fs::weakly_canonical(buf);
+            fs::path dir = exe.parent_path();
+            candidates.emplace_back(dir / filename);
+            candidates.emplace_back(dir / "cpu/ppc/test" / filename);
+            candidates.emplace_back(dir.parent_path() / "cpu/ppc/test" / filename);
+            candidates.emplace_back(dir.parent_path().parent_path() / "cpu/ppc/test" / filename);
+        }
+    }
+#elif defined(__linux__)
+    {
+        char buf[PATH_MAX];
+        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf)-1);
+        if (len > 0) { buf[len] = 0; fs::path exe = fs::weakly_canonical(buf); fs::path dir = exe.parent_path();
+            candidates.emplace_back(dir / filename);
+            candidates.emplace_back(dir / "cpu/ppc/test" / filename);
+            candidates.emplace_back(dir.parent_path() / "cpu/ppc/test" / filename);
+        }
+    }
+#endif
+    for (auto &c : candidates) {
+        stream.open(c);
+        if (stream.is_open()) return true;
+    }
+    return false;
+}
+
 static void read_test_data() {
     string line, token;
     int i, lineno;
     uint32_t opcode, dest, src1, src2, check_xer, check_cr;
 
-    ifstream tfstream("ppcinttests.csv");
-    if (!tfstream.is_open()) {
+    ifstream tfstream;
+    if (!open_csv(tfstream, "ppcinttests.csv")) {
         cout << "Could not open tests CSV file. Exiting..." << endl;
         return;
     }
@@ -203,8 +249,8 @@ static void read_test_float_data() {
     double dfp_src1, dfp_src2, dfp_src3;
     string rounding_mode;
 
-    ifstream tf2stream("ppcfloattests.csv");
-    if (!tf2stream.is_open()) {
+    ifstream tf2stream;
+    if (!open_csv(tf2stream, "ppcfloattests.csv")) {
         cout << "Could not open tests CSV file. Exiting..." << endl;
         return;
     }

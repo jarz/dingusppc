@@ -182,6 +182,8 @@ extern uint32_t tbr_freq_ghz;
 extern uint32_t tbr_freq_shift;
 extern uint64_t tbr_period_ns;
 extern uint32_t rtc_lo, rtc_hi;
+extern uint64_t g_icycles;
+extern uint64_t g_nanoseconds_base;
 
 /* Flags for controlling interpreter execution. */
 enum {

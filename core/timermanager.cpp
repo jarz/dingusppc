@@ -107,6 +107,15 @@ void TimerManager::cancel_timer(uint32_t id)
     }
 }
 
+void TimerManager::reset()
+{
+    std::lock_guard<std::recursive_mutex> lk(this->timer_queue.get_mtx());
+    while (!this->timer_queue.empty()) {
+        this->timer_queue.pop();
+    }
+    this->id = 0;
+}
+
 uint64_t TimerManager::process_timers()
 {
     std::shared_ptr<TimerInfo> cur_timer;

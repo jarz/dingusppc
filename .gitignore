@@ -47,3 +47,10 @@ build-*
 DerivedData
 *.xcodeproj/project.xcworkspace
 *.xcodeproj/xcuserdata
+
+# Fuzzing artifacts
+build-fuzz/
+corpus/
+seeds/
+artifacts/
+crash-*

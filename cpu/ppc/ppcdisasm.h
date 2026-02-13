@@ -26,6 +26,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <string>
 #include <vector>
 
+extern bool g_quiet_disasm;
+
 typedef struct PPCDisasmContext {
     uint32_t instr_addr;
     uint32_t instr_code;

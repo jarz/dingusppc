@@ -26,18 +26,64 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <sstream>
 #include <string>
 #include <vector>
+#include <filesystem>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#include <limits.h>
+#elif defined(__linux__)
+#include <unistd.h>
+#include <limits.h>
+#endif
 
 using namespace std;
 
 /** testing vehicle */
+static bool open_csv(std::ifstream &stream, const std::string &filename) {
+    namespace fs = std::filesystem;
+    std::vector<fs::path> candidates;
+    candidates.emplace_back(filename);
+    candidates.emplace_back(fs::path("cpu/ppc/test") / filename);
+#ifdef DPPC_SOURCE_DIR
+    candidates.emplace_back(fs::path(DPPC_SOURCE_DIR) / "cpu/ppc/test" / filename);
+#endif
+#ifdef __APPLE__
+    {
+        char buf[PATH_MAX]; uint32_t sz = sizeof(buf);
+        if (_NSGetExecutablePath(buf, &sz) == 0) {
+            fs::path exe = fs::weakly_canonical(buf);
+            fs::path dir = exe.parent_path();
+            candidates.emplace_back(dir / filename);
+            candidates.emplace_back(dir / "cpu/ppc/test" / filename);
+            candidates.emplace_back(dir.parent_path() / "cpu/ppc/test" / filename);
+            candidates.emplace_back(dir.parent_path().parent_path() / "cpu/ppc/test" / filename);
+        }
+    }
+#elif defined(__linux__)
+    {
+        char buf[PATH_MAX];
+        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf)-1);
+        if (len > 0) { buf[len] = 0; fs::path exe = fs::weakly_canonical(buf); fs::path dir = exe.parent_path();
+            candidates.emplace_back(dir / filename);
+            candidates.emplace_back(dir / "cpu/ppc/test" / filename);
+            candidates.emplace_back(dir.parent_path() / "cpu/ppc/test" / filename);
+        }
+    }
+#endif
+    for (auto &c : candidates) {
+        stream.open(c);
+        if (stream.is_open()) return true;
+    }
+    return false;
+}
+
 static vector<PPCDisasmContext> read_test_data() {
     string line, token;
     int i, lineno;
     PPCDisasmContext ctx;
     vector<PPCDisasmContext> tstvec;
 
-    ifstream tfstream("ppcdisasmtest.csv");
-    if (!tfstream.is_open()) {
+    ifstream tfstream;
+    if (!open_csv(tfstream, "ppcdisasmtest.csv")) {
         cout << "Could not open tests CSV file. Exiting..." << endl;
         return tstvec;
     }
