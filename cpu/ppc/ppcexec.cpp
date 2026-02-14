@@ -254,6 +254,23 @@ void ppc_main_opcode(PPCOpcode *opcodeGrabber, uint32_t opcode)
     opcodeGrabber[(opcode >> 15 & 0x1F800) | (opcode & 0x7FF)](opcode);
 }
 
+/* Hot-path dispatch for the inner interpreter loop
+ * Marked as always_inline to eliminate call overhead in the critical path
+ * This allows the compiler to better optimize the dispatch sequence */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((always_inline, hot))
+#endif
+static inline void ppc_dispatch_opcode(PPCOpcode *opcodeGrabber, uint32_t opcode)
+{
+#ifdef CPU_PROFILING
+    num_executed_instrs++;
+#if defined(CPU_PROFILING_OPS)
+    num_opcodes[opcode]++;
+#endif
+#endif
+    opcodeGrabber[(opcode >> 15 & 0x1F800) | (opcode & 0x7FF)](opcode);
+}
+
 static long long cpu_now_ns() {
 #ifdef __APPLE__
     return ConvertHostTimeToNanos2(mach_absolute_time());
@@ -296,7 +313,7 @@ typedef enum {
     debug,
 } ppc_exec_type_t;
 
-// inner interpreter loop
+// inner interpreter loop with optimized hot-path dispatch
 template <ppc_exec_type_t exec_type>
 static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
 {
@@ -322,7 +339,8 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
         }
 
         opcode = ppc_read_instruction(pc_real);
-        ppc_main_opcode(opcode_grabber, opcode);
+        // Use inlined hot-path dispatch to reduce overhead
+        ppc_dispatch_opcode(opcode_grabber, opcode);
         if (g_icycles++ >= max_cycles || exec_timer) [[unlikely]]
             max_cycles = process_events();
 
