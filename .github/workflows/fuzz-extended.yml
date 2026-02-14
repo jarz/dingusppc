@@ -1,0 +1,75 @@
+name: Extended Fuzz
+on:
+  schedule:
+    - cron: '0 4 * * 0'  # Weekly on Sunday at 04:00 UTC
+  workflow_dispatch:       # Allow manual trigger
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  fuzz-extended:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ASAN_OPTIONS: detect_leaks=0
+    strategy:
+      fail-fast: false
+      matrix:
+        fuzzer:
+          - name: fuzz_ppc_single_instruction
+            max_len: 14
+          - name: fuzz_ppc_disasm
+            max_len: 4
+          - name: fuzz_mmio_device
+            max_len: 8
+          - name: fuzz_pci_cfg
+            max_len: 6
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq libsdl2-dev ninja-build
+    - name: Restore corpus cache
+      uses: actions/cache@v4
+      with:
+        path: corpus/${{ matrix.fuzzer.name }}
+        key: fuzz-corpus-${{ matrix.fuzzer.name }}-${{ github.run_id }}
+        restore-keys: fuzz-corpus-${{ matrix.fuzzer.name }}-
+    - name: Configure CMake
+      run: >
+        cmake -S . -B build -GNinja
+        -DCMAKE_BUILD_TYPE=Debug
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_CXX_COMPILER=clang++
+        -DDPPC_BUILD_FUZZ=ON
+    - name: Build
+      run: >
+        cmake --build build --parallel
+        --target ${{ matrix.fuzzer.name }}
+    - name: Ensure corpus directory
+      run: mkdir -p corpus/${{ matrix.fuzzer.name }}
+    - name: Run ${{ matrix.fuzzer.name }} (5 minutes)
+      run: >
+        timeout 330
+        build/bin/${{ matrix.fuzzer.name }}
+        corpus/${{ matrix.fuzzer.name }}
+        -max_total_time=300
+        -max_len=${{ matrix.fuzzer.max_len }}
+        -print_final_stats=1
+        || test $? -eq 124
+    - name: Upload crash artifacts
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: crashes-${{ matrix.fuzzer.name }}
+        path: |
+          crash-*
+          leak-*
+          timeout-*
+        if-no-files-found: ignore
+        retention-days: 30
