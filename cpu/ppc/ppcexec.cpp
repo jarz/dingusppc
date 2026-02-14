@@ -449,7 +449,7 @@ static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
     uint32_t page_start, eb_start, eb_end = 0;
     uint32_t opcode;
     PPCOpcode* opcode_grabber = ppc_opcode_grabber;
-    uint8_t* pc_real;
+    uint8_t* __restrict__ pc_real;  // restrict: doesn't alias with other pointers
     
     // Initialize dispatch table on first run
     if (!dispatch_table_initialized) {
