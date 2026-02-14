@@ -457,7 +457,7 @@ static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
         for (size_t i = 0; i < DISPATCH_TABLE_SIZE; i++) {
             DirectThreadedDispatchTable[i] = &&call_function;
         }
-        
+
         dispatch_table_initialized = true;
         LOG_F(INFO, "Direct-threaded interpreter: dispatch table initialized with %d entries", 
               (int)DISPATCH_TABLE_SIZE);
