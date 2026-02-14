@@ -52,8 +52,17 @@ endif()
 option(DPPC_BUILD_PPC_TESTS  "Build PowerPC tests" OFF)
 option(DPPC_BUILD_BENCHMARKS "Build benchmarking programs" OFF)
 option(DPPC_BUILD_FUZZ       "Build fuzz targets (requires Clang and libFuzzer)" OFF)
+option(DPPC_THREADED_INTERPRETER "Enable threaded interpreter (computed goto dispatch)" ON)
 
 option(DPPC_68K_DEBUGGER   "Enable 68k debugging" OFF)
+
+if (DPPC_THREADED_INTERPRETER)
+    message(STATUS "Threaded interpreter: enabled (computed goto dispatch)")
+    # The implementation automatically detects GCC/Clang support
+else()
+    message(STATUS "Threaded interpreter: disabled")
+    add_compile_definitions(DISABLE_THREADED_INTERPRETER)
+endif()
 
 if (DPPC_68K_DEBUGGER)
     # Turn off anything unnecessary.
@@ -202,26 +211,47 @@ endif()
 
 if (DPPC_BUILD_BENCHMARKS)
     add_compile_options("-DPPC_BENCHMARKS")
-    file(GLOB BENCH_SOURCES "${PROJECT_SOURCE_DIR}/benchmark/*.cpp"
-                            "${PROJECT_SOURCE_DIR}/cpu/ppc/*.cpp"
-                            "${PROJECT_SOURCE_DIR}/cpu/ppc/*.h"
-                            )
-    add_executable(bench1 ${BENCH_SOURCES} $<TARGET_OBJECTS:core>
-                                           # $<TARGET_OBJECTS:cpu_ppc>
-                                           $<TARGET_OBJECTS:debugger>
-                                           $<TARGET_OBJECTS:devices>
-                                           $<TARGET_OBJECTS:machines>
-                                           $<TARGET_OBJECTS:utils>
-                                           $<TARGET_OBJECTS:loguru>)
+    
+    # Get all CPU/PPC sources except benchmark files
+    file(GLOB PPC_SOURCES "${PROJECT_SOURCE_DIR}/cpu/ppc/*.cpp"
+                          "${PROJECT_SOURCE_DIR}/cpu/ppc/*.h")
+    
+    # bench1 - original checksum benchmark
+    add_executable(bench1 "${PROJECT_SOURCE_DIR}/benchmark/bench1.cpp"
+                          ${PPC_SOURCES}
+                          $<TARGET_OBJECTS:core>
+                          $<TARGET_OBJECTS:debugger>
+                          $<TARGET_OBJECTS:devices>
+                          $<TARGET_OBJECTS:machines>
+                          $<TARGET_OBJECTS:utils>
+                          $<TARGET_OBJECTS:loguru>)
 
     target_link_libraries(bench1 PRIVATE cubeb SDL2::SDL2 ${CMAKE_DL_LIBS}
             ${CMAKE_THREAD_LIBS_INIT})
     if (WIN32)
         target_compile_definitions(bench1 PRIVATE SDL_MAIN_HANDLED)
     endif()
-
     if (DPPC_68K_DEBUGGER)
         target_link_libraries(bench1 PRIVATE capstone)
+    endif()
+    
+    # bench_dispatch - dispatch overhead benchmark
+    add_executable(bench_dispatch "${PROJECT_SOURCE_DIR}/benchmark/bench_dispatch.cpp"
+                                  ${PPC_SOURCES}
+                                  $<TARGET_OBJECTS:core>
+                                  $<TARGET_OBJECTS:debugger>
+                                  $<TARGET_OBJECTS:devices>
+                                  $<TARGET_OBJECTS:machines>
+                                  $<TARGET_OBJECTS:utils>
+                                  $<TARGET_OBJECTS:loguru>)
+
+    target_link_libraries(bench_dispatch PRIVATE cubeb SDL2::SDL2 ${CMAKE_DL_LIBS}
+            ${CMAKE_THREAD_LIBS_INIT})
+    if (WIN32)
+        target_compile_definitions(bench_dispatch PRIVATE SDL_MAIN_HANDLED)
+    endif()
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(bench_dispatch PRIVATE capstone)
     endif()
 endif()
 
