@@ -547,23 +547,8 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
 
         opcode = ppc_read_instruction(pc_real);
         
-        // Architecture-specific prefetch optimizations
-        // Prefetch next instruction to reduce memory latency
-#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
-        // ARM64: Aggressive prefetching with PRFM instruction
-        // ARM64 has higher memory latency than x86-64, so prefetch is more critical
-        // Prefetch 2 instructions ahead for better pipeline coverage
-        __builtin_prefetch(pc_real + 4, 0, 3);  // Next instruction
-        __builtin_prefetch(pc_real + 8, 0, 2);  // Instruction after that (lower priority)
-#elif defined(__x86_64__) || defined(_M_X64)
-        // x86-64: Conservative prefetching
-        // x86-64 has good hardware prefetching, so we just hint the next instruction
-        // Using locality hint 1 (moderate temporal locality)
-        __builtin_prefetch(pc_real + 4, 0, 1);
-#elif defined(__GNUC__) || defined(__clang__)
-        // Generic: Standard prefetch for next instruction
+        // Prefetch next instruction
         __builtin_prefetch(pc_real + 4, 0, 3);
-#endif
         
         // Use inlined hot-path dispatch to reduce overhead
         ppc_dispatch_opcode(opcode_grabber, opcode);
