@@ -452,21 +452,15 @@ static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
     PPCOpcode* opcode_grabber = ppc_opcode_grabber;
     uint8_t* pc_real;
     
-    // Initialize dispatch table on first run (from whichever instantiation runs first)
+    // Initialize dispatch table on first run
     if (!dispatch_table_initialized) {
-        // Fill entire table with "call_function" label initially
+        // Fill entire table with "call_function" label
         for (size_t i = 0; i < DISPATCH_TABLE_SIZE; i++) {
             DirectThreadedDispatchTable[i] = &&call_function;
         }
         
-        // Map hot instructions to inline handlers  
-        // addi (opcode 14): Add immediate
-        for (uint32_t mod = 0; mod < 2048; mod++) {
-            DirectThreadedDispatchTable[(14 << 11) | mod] = &&handler_addi;
-        }
-        
         dispatch_table_initialized = true;
-        LOG_F(INFO, "Direct-threaded interpreter: dispatch table initialized with %d entries (addi inlined)", 
+        LOG_F(INFO, "Direct-threaded interpreter: dispatch table initialized with %d entries", 
               (int)DISPATCH_TABLE_SIZE);
     }
     
@@ -490,79 +484,15 @@ dispatch_start:
     DISPATCH_NEXT();
 
 // ============================================================================
-// INLINE LABEL-BASED INSTRUCTION HANDLERS
+// FALLBACK HANDLER FOR ALL INSTRUCTIONS
 // ============================================================================
 // 
-// Hot instructions are inlined directly at labels to eliminate function call
-// overhead. Each handler extracts operands, executes the instruction, then
-// dispatches to the next instruction via DISPATCH_NEXT().
-
-// Handler for addi (Add Immediate) - opcode 14
-handler_addi:
-    {
-#ifdef CPU_PROFILING
-        num_executed_instrs++;
-#if defined(CPU_PROFILING_OPS)
-        num_opcodes[opcode]++;
-#endif
-#endif
-        // Extract operands: ppc_grab_regsdasimm(opcode)
-        int reg_d = (opcode >> 21) & 31;
-        int reg_a = (opcode >> 16) & 31;
-        int32_t simm = int32_t(int16_t(opcode));
-        
-        // Execute: addi with shift=0
-        if (reg_a == 0)
-            ppc_state.gpr[reg_d] = simm;
-        else
-            ppc_state.gpr[reg_d] = ppc_state.gpr[reg_a] + simm;
-    }
-    
-    CHECK_CYCLES();
-    HANDLE_BRANCH();
-    
-    if (exec_type == until && ppc_state.pc == start_addr)
-        return;
-    
-    goto dispatch_start;
-
-// Handler for addis (Add Immediate Shifted) - opcode 15
-handler_addis:
-    {
-#ifdef CPU_PROFILING
-        num_executed_instrs++;
-#if defined(CPU_PROFILING_OPS)
-        num_opcodes[opcode]++;
-#endif
-#endif
-        // Extract operands: ppc_grab_regsdasimm(opcode)
-        int reg_d = (opcode >> 21) & 31;
-        int reg_a = (opcode >> 16) & 31;
-        int32_t simm = int32_t(int16_t(opcode));
-        
-        // Execute: addi with shift=1
-        if (reg_a == 0)
-            ppc_state.gpr[reg_d] = simm << 16;
-        else
-            ppc_state.gpr[reg_d] = ppc_state.gpr[reg_a] + (simm << 16);
-    }
-    
-    CHECK_CYCLES();
-    HANDLE_BRANCH();
-    
-    if (exec_type == until && ppc_state.pc == start_addr)
-        return;
-    
-    goto dispatch_start;
-
-// ============================================================================
-// FALLBACK HANDLER FOR NON-INLINED INSTRUCTIONS
-// ============================================================================
-// 
-// Each handler is implemented as a label with inline code.
-// For now, we use a single "call_function" label that calls the existing
-// function pointer dispatch. This establishes the infrastructure.
-// In a follow-up, we can inline hot instructions here for maximum performance.
+// All instructions go through this label which calls the existing
+// function-based handlers. This hybrid approach provides good performance
+// while maintaining code simplicity and debuggability.
+//
+// Future optimization: Inline hot instructions directly at labels
+// Note: Inlining requires careful handling of template/label scope issues
 
 call_function:
     // Fallback: call existing function-based handler
