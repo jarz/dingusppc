@@ -19,6 +19,16 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - name: gcc
+            cc: gcc
+            cxx: g++
+          - name: clang
+            cc: clang
+            cxx: clang++
     steps:
     - uses: actions/checkout@v4
       with:
@@ -26,18 +36,26 @@ jobs:
     - name: Cache ccache
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}/.ccache/linux
-        key: linux-ccache-${{ runner.os }}-${{ env.BUILD_TYPE }}-${{ hashFiles('**/CMakeLists.txt') }}
-        restore-keys: linux-ccache-${{ runner.os }}-${{ env.BUILD_TYPE }}-
+        path: ${{ github.workspace }}/.ccache/linux-${{ matrix.compiler.name }}
+        key: linux-${{ matrix.compiler.name }}-ccache-${{ env.BUILD_TYPE }}-${{ hashFiles('**/CMakeLists.txt') }}
+        restore-keys: linux-${{ matrix.compiler.name }}-ccache-${{ env.BUILD_TYPE }}-
     - name: Install dependencies
       run: |
           sudo apt-get update -y -qq
           sudo apt-get install -y -qq libsdl2-dev ninja-build ccache
     - name: Configure CMake
       env:
-        CCACHE_DIR: ${{ github.workspace }}/.ccache/linux
+        CCACHE_DIR: ${{ github.workspace }}/.ccache/linux-${{ matrix.compiler.name }}
         CCACHE_BASEDIR: ${{ github.workspace }}
-      run: cmake -S . -B build -GNinja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DDPPC_68K_DEBUGGER=ON -DDPPC_BUILD_PPC_TESTS=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      run: >
+        cmake -S . -B build -GNinja
+        -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+        -DDPPC_68K_DEBUGGER=ON
+        -DDPPC_BUILD_PPC_TESTS=ON
+        -DCMAKE_C_COMPILER=${{ matrix.compiler.cc }}
+        -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }}
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
     - name: Build
       run: cmake --build build --config ${{env.BUILD_TYPE}} --parallel
     - name: Test

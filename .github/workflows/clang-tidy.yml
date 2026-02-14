@@ -1,0 +1,52 @@
+name: Clang-Tidy
+on:
+  push:
+    branches:
+      - 'jarz/**'
+      - 'copilot/**'
+  pull_request:
+    branches:
+      - 'jarz/**'
+      - 'dev'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  clang-tidy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -y -qq
+        sudo apt-get install -y -qq libsdl2-dev ninja-build clang-tidy
+    - name: Configure CMake
+      run: >
+        cmake -S . -B build -GNinja
+        -DCMAKE_BUILD_TYPE=Debug
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+        -DDPPC_68K_DEBUGGER=ON
+        -DDPPC_BUILD_PPC_TESTS=ON
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_CXX_COMPILER=clang++
+    - name: Run clang-tidy
+      run: |
+        # Run on project sources only (exclude thirdparty)
+        find . \( -path ./thirdparty -o -path ./build \) -prune -o \
+          \( -name '*.cpp' -o -name '*.c' \) -print \
+        | xargs clang-tidy -p build \
+          --checks='-*,bugprone-*,performance-*,clang-analyzer-*,misc-use-after-move,-bugprone-narrowing-conversions,-bugprone-easily-swappable-parameters,-bugprone-implicit-widening-of-multiplication-result' \
+          --warnings-as-errors='bugprone-use-after-move,bugprone-use-after-free,clang-analyzer-core.*' \
+          2>&1 | tee clang-tidy-output.txt
+    - name: Upload clang-tidy results
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: clang-tidy-results
+        path: clang-tidy-output.txt
+        retention-days: 7

@@ -1,0 +1,67 @@
+name: Fuzz
+on:
+  push:
+    branches:
+      - 'jarz/**'
+      - 'copilot/**'
+  pull_request:
+    branches:
+      - 'jarz/**'
+      - 'dev'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ASAN_OPTIONS: detect_leaks=0
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq libsdl2-dev ninja-build
+    - name: Configure CMake
+      run: >
+        cmake -S . -B build -GNinja
+        -DCMAKE_BUILD_TYPE=Debug
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_CXX_COMPILER=clang++
+        -DDPPC_BUILD_FUZZ=ON
+    - name: Build
+      run: >
+        cmake --build build --parallel
+        --target fuzz_ppc_single_instruction
+        --target fuzz_ppc_disasm
+        --target fuzz_mmio_device
+        --target fuzz_pci_cfg
+    - name: Smoke-test single-instruction fuzzer
+      run: >
+        timeout 30
+        build/bin/fuzz_ppc_single_instruction
+        -max_total_time=10 -max_len=14
+        || test $? -eq 124
+    - name: Smoke-test disassembler fuzzer
+      run: >
+        timeout 30
+        build/bin/fuzz_ppc_disasm
+        -max_total_time=10 -max_len=4
+        || test $? -eq 124
+    - name: Smoke-test MMIO device fuzzer
+      run: >
+        timeout 30
+        build/bin/fuzz_mmio_device
+        -max_total_time=10 -max_len=8
+        || test $? -eq 124
+    - name: Smoke-test PCI config space fuzzer
+      run: >
+        timeout 30
+        build/bin/fuzz_pci_cfg
+        -max_total_time=10 -max_len=6
+        || test $? -eq 124
