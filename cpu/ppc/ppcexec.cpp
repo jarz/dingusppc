@@ -403,13 +403,17 @@ static void* DirectThreadedDispatchTable[DISPATCH_TABLE_SIZE];
 static bool dispatch_table_initialized = false;
 
 // Macro to dispatch to next instruction
+// CRAZY IDEA: Try prefetching the DISPATCH TABLE entry in addition to instruction
 #define DISPATCH_NEXT() do { \
     opcode = ppc_read_instruction(pc_real); \
+    uint32_t _idx = OPCODE_TO_DISPATCH_INDEX(opcode); \
     __builtin_prefetch(pc_real + 4, 0, 3); \
-    goto *DirectThreadedDispatchTable[OPCODE_TO_DISPATCH_INDEX(opcode)]; \
+    __builtin_prefetch(&DirectThreadedDispatchTable[_idx], 0, 0); \
+    goto *DirectThreadedDispatchTable[_idx]; \
 } while(0)
 
 // Helper macros for common instruction patterns
+// Use flatten attribute to force compiler to inline everything in dispatch path
 #define CHECK_CYCLES() do { \
     if (g_icycles++ >= max_cycles || exec_timer) [[unlikely]] \
         max_cycles = process_events(); \
@@ -421,12 +425,12 @@ static bool dispatch_table_initialized = false;
 } while(0)
 
 #define HANDLE_BRANCH() do { \
-    if (exec_flags) { \
+    if (exec_flags) [[unlikely]] { \
         if (exec_flags & EXEF_OPC_DECODER) [[unlikely]] { \
             opcode_grabber = ppc_opcode_grabber; \
         } \
         eb_start = ppc_next_instruction_address; \
-        if (!(exec_flags & EXEF_RFI) && (eb_start & PPC_PAGE_MASK) == page_start) { \
+        if (!(exec_flags & EXEF_RFI) && (eb_start & PPC_PAGE_MASK) == page_start) [[likely]] { \
             pc_real += (int)eb_start - (int)ppc_state.pc; \
         } else { \
             page_start = eb_start & PPC_PAGE_MASK; \
@@ -435,15 +439,17 @@ static bool dispatch_table_initialized = false;
         } \
         ppc_state.pc = eb_start; \
         exec_flags = 0; \
-    } else { \
+    } else [[likely]] { \
         ADVANCE_PC(); \
     } \
 } while(0)
 
-// Threaded interpreter with label-based dispatch
-// Single dispatch table shared across all execution modes
-// Labels are function-scoped but identical across template instantiations
+// Threaded interpreter with label-based dispatch  
+// Use flatten attribute to aggressively inline everything
 template <ppc_exec_type_t exec_type>
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((flatten, hot))
+#endif
 static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
 {
     uint64_t max_cycles = 0;
@@ -465,14 +471,14 @@ static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
     }
     
 dispatch_start:
-    if (!power_on)
+    if (__builtin_expect(!power_on, 0))
         return;
         
-    if (exec_type == debug)
-        if (ppc_state.pc >= start_addr && ppc_state.pc < start_addr + size)
+    if (__builtin_expect(exec_type == debug, 0))
+        if (__builtin_expect(ppc_state.pc >= start_addr && ppc_state.pc < start_addr + size, 0))
             return;
 
-    if (ppc_state.pc >= eb_end) {
+    if (__builtin_expect(ppc_state.pc >= eb_end, 0)) {
         eb_start   = ppc_state.pc;
         page_start = eb_start & PPC_PAGE_MASK;
         eb_end     = page_start + PPC_PAGE_SIZE - 1;
