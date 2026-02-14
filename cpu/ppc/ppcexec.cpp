@@ -357,7 +357,9 @@ typedef enum {
 // This uses GCC/Clang's "labels as values" extension (&&label and goto *)
 // which is supported by GCC, Clang, but not MSVC.
 
-#if (defined(__GNUC__) || defined(__clang__)) && !defined(DISABLE_THREADED_INTERPRETER)
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(DISABLE_THREADED_INTERPRETER) && \
+    !(defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__)))
+// Disable threaded interpreter on macOS ARM64 where it provides no benefit
 #define USE_THREADED_INTERPRETER 1
 
 // ============================================================================
@@ -1051,7 +1053,11 @@ void ppc_cpu_init(MemCtrlBase* mem_ctrl, uint32_t cpu_version, bool do_include_6
 #ifdef USE_THREADED_INTERPRETER
     LOG_F(INFO, "PowerPC interpreter: threaded mode (computed goto dispatch)");
 #else
+  #if defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
+    LOG_F(INFO, "PowerPC interpreter: standard mode (threaded mode disabled on macOS ARM64)");
+  #else
     LOG_F(INFO, "PowerPC interpreter: standard mode (function pointer dispatch)");
+  #endif
 #endif
 
     // initialize emulator timers
