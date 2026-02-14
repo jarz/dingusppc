@@ -380,16 +380,25 @@ typedef enum {
 // - Complex instructions: call existing functions from label stubs
 // - This minimizes code duplication while maximizing performance
 
+// Dispatch table size calculation:
+// - Primary opcode: 6 bits (0-5) = 64 values
+// - Modifier opcode: 11 bits (21-31) = 2048 values
+// - Total: 64 × 2048 = 131,072 entries
+#define DISPATCH_TABLE_SIZE (64 * 2048)
+
+// Helper macro to calculate dispatch index from opcode
+// Extracts primary opcode (bits 0-5) and modifier (bits 21-31)
+#define OPCODE_TO_DISPATCH_INDEX(op) (((op) >> 15 & 0x1F800) | ((op) & 0x7FF))
+
 // Dispatch table: maps opcode index -> label address
-static void* DirectThreadedDispatchTable[64 * 2048];
+static void* DirectThreadedDispatchTable[DISPATCH_TABLE_SIZE];
 static bool dispatch_table_initialized = false;
 
 // Macro to dispatch to next instruction
 #define DISPATCH_NEXT() do { \
     opcode = ppc_read_instruction(pc_real); \
     __builtin_prefetch(pc_real + 4, 0, 3); \
-    uint32_t dispatch_idx = (opcode >> 15 & 0x1F800) | (opcode & 0x7FF); \
-    goto *DirectThreadedDispatchTable[dispatch_idx]; \
+    goto *DirectThreadedDispatchTable[OPCODE_TO_DISPATCH_INDEX(opcode)]; \
 } while(0)
 
 // Helper macros for common instruction patterns
@@ -435,11 +444,12 @@ static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
     // Initialize dispatch table on first run
     if (!dispatch_table_initialized) {
         // Fill entire table with "call_function" label initially
-        for (int i = 0; i < 64 * 2048; i++) {
+        for (size_t i = 0; i < DISPATCH_TABLE_SIZE; i++) {
             DirectThreadedDispatchTable[i] = &&call_function;
         }
         dispatch_table_initialized = true;
-        LOG_F(INFO, "Direct-threaded interpreter: dispatch table initialized with %d entries", 64 * 2048);
+        LOG_F(INFO, "Direct-threaded interpreter: dispatch table initialized with %d entries", 
+              (int)DISPATCH_TABLE_SIZE);
     }
     
 dispatch_start:
@@ -479,8 +489,7 @@ call_function:
         num_opcodes[opcode]++;
 #endif
 #endif
-        uint32_t dispatch_idx = (opcode >> 15 & 0x1F800) | (opcode & 0x7FF);
-        opcode_grabber[dispatch_idx](opcode);
+        opcode_grabber[OPCODE_TO_DISPATCH_INDEX(opcode)](opcode);
     }
     
     CHECK_CYCLES();
