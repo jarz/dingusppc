@@ -3,11 +3,10 @@ on:
   push:
     branches:
       - 'jarz/**'
-      - 'dev'
+      - 'copilot/**'
   pull_request:
     branches:
       - 'jarz/**'
-      - 'copilot/**'
       - 'dev'
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
