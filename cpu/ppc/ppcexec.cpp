@@ -379,6 +379,11 @@ typedef enum {
 // - Simple/hot instructions: inlined at labels
 // - Complex instructions: call existing functions from label stubs
 // - This minimizes code duplication while maximizing performance
+//
+// IMPORTANT: Labels are function-scoped, so each template instantiation
+// (main, until, debug) needs its own dispatch table initialized with
+// labels from THAT instantiation. This ensures all execution modes work
+// correctly and the code remains debuggable.
 
 // Dispatch table size calculation:
 // - Primary opcode: 6 bits (0-5) = 64 values
@@ -390,15 +395,19 @@ typedef enum {
 // Extracts primary opcode (bits 0-5) and modifier (bits 21-31)
 #define OPCODE_TO_DISPATCH_INDEX(op) (((op) >> 15 & 0x1F800) | ((op) & 0x7FF))
 
-// Dispatch table: maps opcode index -> label address
-static void* DirectThreadedDispatchTable[DISPATCH_TABLE_SIZE];
-static bool dispatch_table_initialized = false;
+// Dispatch tables: one per execution mode (labels are function-scoped)
+static void* DirectThreadedDispatchTable_main[DISPATCH_TABLE_SIZE];
+static void* DirectThreadedDispatchTable_until[DISPATCH_TABLE_SIZE];
+static void* DirectThreadedDispatchTable_debug[DISPATCH_TABLE_SIZE];
+static bool dispatch_table_main_initialized = false;
+static bool dispatch_table_until_initialized = false;
+static bool dispatch_table_debug_initialized = false;
 
 // Macro to dispatch to next instruction
-#define DISPATCH_NEXT() do { \
+#define DISPATCH_NEXT(dispatch_table) do { \
     opcode = ppc_read_instruction(pc_real); \
     __builtin_prefetch(pc_real + 4, 0, 3); \
-    goto *DirectThreadedDispatchTable[OPCODE_TO_DISPATCH_INDEX(opcode)]; \
+    goto *dispatch_table[OPCODE_TO_DISPATCH_INDEX(opcode)]; \
 } while(0)
 
 // Helper macros for common instruction patterns
@@ -432,6 +441,8 @@ static bool dispatch_table_initialized = false;
     } \
 } while(0)
 
+// Threaded interpreter with label-based dispatch
+// Each template instantiation has its own dispatch table with labels from that scope
 template <ppc_exec_type_t exec_type>
 static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
 {
@@ -441,15 +452,45 @@ static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
     PPCOpcode* opcode_grabber = ppc_opcode_grabber;
     uint8_t* pc_real;
     
+    // Select the dispatch table for this execution mode
+    void** dispatch_table;
+    bool* table_initialized;
+    const char* mode_name;
+    
+    if constexpr (exec_type == main) {
+        dispatch_table = DirectThreadedDispatchTable_main;
+        table_initialized = &dispatch_table_main_initialized;
+        mode_name = "main";
+    } else if constexpr (exec_type == until) {
+        dispatch_table = DirectThreadedDispatchTable_until;
+        table_initialized = &dispatch_table_until_initialized;
+        mode_name = "until";
+    } else { // debug
+        dispatch_table = DirectThreadedDispatchTable_debug;
+        table_initialized = &dispatch_table_debug_initialized;
+        mode_name = "debug";
+    }
+    
     // Initialize dispatch table on first run
-    if (!dispatch_table_initialized) {
+    if (!*table_initialized) {
         // Fill entire table with "call_function" label initially
         for (size_t i = 0; i < DISPATCH_TABLE_SIZE; i++) {
-            DirectThreadedDispatchTable[i] = &&call_function;
+            dispatch_table[i] = &&call_function;
         }
-        dispatch_table_initialized = true;
-        LOG_F(INFO, "Direct-threaded interpreter: dispatch table initialized with %d entries", 
-              (int)DISPATCH_TABLE_SIZE);
+        
+        // Map hot instructions to inline handlers
+        // addi (opcode 14): Add immediate
+        for (uint32_t mod = 0; mod < 2048; mod++) {
+            dispatch_table[(14 << 11) | mod] = &&handler_addi;
+        }
+        // addis (opcode 15): Add immediate shifted
+        for (uint32_t mod = 0; mod < 2048; mod++) {
+            dispatch_table[(15 << 11) | mod] = &&handler_addis;
+        }
+        
+        *table_initialized = true;
+        LOG_F(INFO, "Direct-threaded interpreter (%s): dispatch table initialized with %d entries (inline handlers active)", 
+              mode_name, (int)DISPATCH_TABLE_SIZE);
     }
     
 dispatch_start:
@@ -469,10 +510,76 @@ dispatch_start:
     }
 
     // Start dispatching - fetch first instruction
-    DISPATCH_NEXT();
+    DISPATCH_NEXT(dispatch_table);
 
 // ============================================================================
-// LABEL-BASED INSTRUCTION HANDLERS
+// INLINE LABEL-BASED INSTRUCTION HANDLERS
+// ============================================================================
+// 
+// Hot instructions are inlined directly at labels to eliminate function call
+// overhead. Each handler extracts operands, executes the instruction, then
+// dispatches to the next instruction via DISPATCH_NEXT().
+
+// Handler for addi (Add Immediate) - opcode 14
+handler_addi:
+    {
+#ifdef CPU_PROFILING
+        num_executed_instrs++;
+#if defined(CPU_PROFILING_OPS)
+        num_opcodes[opcode]++;
+#endif
+#endif
+        // Extract operands: ppc_grab_regsdasimm(opcode)
+        int reg_d = (opcode >> 21) & 31;
+        int reg_a = (opcode >> 16) & 31;
+        int32_t simm = int32_t(int16_t(opcode));
+        
+        // Execute: addi with shift=0
+        if (reg_a == 0)
+            ppc_state.gpr[reg_d] = simm;
+        else
+            ppc_state.gpr[reg_d] = ppc_state.gpr[reg_a] + simm;
+    }
+    
+    CHECK_CYCLES();
+    HANDLE_BRANCH();
+    
+    if (exec_type == until && ppc_state.pc == start_addr)
+        return;
+    
+    goto dispatch_start;
+
+// Handler for addis (Add Immediate Shifted) - opcode 15
+handler_addis:
+    {
+#ifdef CPU_PROFILING
+        num_executed_instrs++;
+#if defined(CPU_PROFILING_OPS)
+        num_opcodes[opcode]++;
+#endif
+#endif
+        // Extract operands: ppc_grab_regsdasimm(opcode)
+        int reg_d = (opcode >> 21) & 31;
+        int reg_a = (opcode >> 16) & 31;
+        int32_t simm = int32_t(int16_t(opcode));
+        
+        // Execute: addi with shift=1
+        if (reg_a == 0)
+            ppc_state.gpr[reg_d] = simm << 16;
+        else
+            ppc_state.gpr[reg_d] = ppc_state.gpr[reg_a] + (simm << 16);
+    }
+    
+    CHECK_CYCLES();
+    HANDLE_BRANCH();
+    
+    if (exec_type == until && ppc_state.pc == start_addr)
+        return;
+    
+    goto dispatch_start;
+
+// ============================================================================
+// FALLBACK HANDLER FOR NON-INLINED INSTRUCTIONS
 // ============================================================================
 // 
 // Each handler is implemented as a label with inline code.
@@ -501,6 +608,7 @@ call_function:
     goto dispatch_start;
 }
 
+// Explicit template instantiations for all execution modes
 #define ppc_exec_inner ppc_exec_inner_threaded
 
 #else

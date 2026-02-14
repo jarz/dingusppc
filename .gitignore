@@ -42,6 +42,8 @@ ehthumbs.db
 # IDE ignores
 build
 build-*
+build_*/
+build_clang/
 *.dir
 *.user
 DerivedData
