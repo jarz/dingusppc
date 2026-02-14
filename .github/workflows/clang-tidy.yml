@@ -4,6 +4,7 @@ on:
     branches:
       - 'jarz/**'
       - 'copilot/**'
+      - 'dev'
   pull_request:
     branches:
       - 'jarz/**'
