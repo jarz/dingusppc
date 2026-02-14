@@ -403,13 +403,10 @@ static void* DirectThreadedDispatchTable[DISPATCH_TABLE_SIZE];
 static bool dispatch_table_initialized = false;
 
 // Macro to dispatch to next instruction
-// CRAZY IDEA: Try prefetching the DISPATCH TABLE entry in addition to instruction
 #define DISPATCH_NEXT() do { \
     opcode = ppc_read_instruction(pc_real); \
-    uint32_t _idx = OPCODE_TO_DISPATCH_INDEX(opcode); \
     __builtin_prefetch(pc_real + 4, 0, 3); \
-    __builtin_prefetch(&DirectThreadedDispatchTable[_idx], 0, 0); \
-    goto *DirectThreadedDispatchTable[_idx]; \
+    goto *DirectThreadedDispatchTable[OPCODE_TO_DISPATCH_INDEX(opcode)]; \
 } while(0)
 
 // Helper macros for common instruction patterns
@@ -445,11 +442,7 @@ static bool dispatch_table_initialized = false;
 } while(0)
 
 // Threaded interpreter with label-based dispatch  
-// Use flatten attribute to aggressively inline everything
 template <ppc_exec_type_t exec_type>
-#if defined(__GNUC__) || defined(__clang__)
-__attribute__((flatten, hot))
-#endif
 static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
 {
     uint64_t max_cycles = 0;
@@ -471,14 +464,14 @@ static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
     }
     
 dispatch_start:
-    if (__builtin_expect(!power_on, 0))
+    if (!power_on)
         return;
         
-    if (__builtin_expect(exec_type == debug, 0))
-        if (__builtin_expect(ppc_state.pc >= start_addr && ppc_state.pc < start_addr + size, 0))
+    if (exec_type == debug)
+        if (ppc_state.pc >= start_addr && ppc_state.pc < start_addr + size)
             return;
 
-    if (__builtin_expect(ppc_state.pc >= eb_end, 0)) {
+    if (ppc_state.pc >= eb_end) [[unlikely]] {
         eb_start   = ppc_state.pc;
         page_start = eb_start & PPC_PAGE_MASK;
         eb_end     = page_start + PPC_PAGE_SIZE - 1;
