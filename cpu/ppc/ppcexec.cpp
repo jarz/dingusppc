@@ -256,7 +256,12 @@ void ppc_main_opcode(PPCOpcode *opcodeGrabber, uint32_t opcode)
 
 /* Hot-path dispatch for the inner interpreter loop
  * Marked as always_inline to eliminate call overhead in the critical path
- * This allows the compiler to better optimize the dispatch sequence */
+ * This allows the compiler to better optimize the dispatch sequence
+ * 
+ * This uses a computed index into the opcode table for O(1) dispatch.
+ * With always_inline, the compiler can optimize away the function call overhead
+ * and better integrate this with the surrounding loop, reducing branch mispredictions.
+ */
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((always_inline, hot))
 #endif
@@ -268,7 +273,10 @@ static inline void ppc_dispatch_opcode(PPCOpcode *opcodeGrabber, uint32_t opcode
     num_opcodes[opcode]++;
 #endif
 #endif
-    opcodeGrabber[(opcode >> 15 & 0x1F800) | (opcode & 0x7FF)](opcode);
+    // Compute dispatch index: primary opcode (bits 0-5) and modifier (bits 21-31)
+    // This creates a 16K entry dispatch table for direct O(1) lookup
+    uint32_t dispatch_idx = (opcode >> 15 & 0x1F800) | (opcode & 0x7FF);
+    opcodeGrabber[dispatch_idx](opcode);
 }
 
 static long long cpu_now_ns() {
@@ -339,6 +347,13 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
         }
 
         opcode = ppc_read_instruction(pc_real);
+        
+        // Prefetch next instruction to reduce memory latency
+        // This hints to the CPU to load the next instruction into cache
+#if defined(__GNUC__) || defined(__clang__)
+        __builtin_prefetch(pc_real + 4, 0, 3);
+#endif
+        
         // Use inlined hot-path dispatch to reduce overhead
         ppc_dispatch_opcode(opcode_grabber, opcode);
         if (g_icycles++ >= max_cycles || exec_timer) [[unlikely]]
