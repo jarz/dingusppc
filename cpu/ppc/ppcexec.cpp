@@ -187,11 +187,19 @@ public:
 
 /** Opcode lookup table, indexed by
     primary opcode (bits 0...5) and modifier (bits 21...31). */
+// Align to cache line for better cache performance
+// ARM64 typically has 64-byte cache lines, x86-64 also 64 bytes
+#if defined(__GNUC__) || defined(__clang__)
+alignas(64)
+#endif
 static PPCOpcode OpcodeGrabber[64 * 2048];
 
 /** Alternate lookup table when floating point instructions are disabled.
     Floating point instructions are mapped to ppc_fpu_off,
     everything else is the same.*/
+#if defined(__GNUC__) || defined(__clang__)
+alignas(64)
+#endif
 static PPCOpcode OpcodeGrabberNoFPU[64 * 2048];
 
 void ppc_msr_did_change(uint32_t old_msr_val, uint32_t new_msr_val, bool set_next_instruction_address) {
@@ -261,6 +269,10 @@ void ppc_main_opcode(PPCOpcode *opcodeGrabber, uint32_t opcode)
  * This uses a computed index into the opcode table for O(1) dispatch.
  * With always_inline, the compiler can optimize away the function call overhead
  * and better integrate this with the surrounding loop, reducing branch mispredictions.
+ * 
+ * Architecture-specific notes:
+ * - x86-64: Benefits from BTB (Branch Target Buffer) for indirect calls
+ * - ARM64: Benefits from reduced instruction cache pressure via inlining
  */
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((always_inline, hot))
@@ -276,6 +288,13 @@ static inline void ppc_dispatch_opcode(PPCOpcode *opcodeGrabber, uint32_t opcode
     // Compute dispatch index: primary opcode (bits 0-5) and modifier (bits 21-31)
     // This creates a 16K entry dispatch table for direct O(1) lookup
     uint32_t dispatch_idx = (opcode >> 15 & 0x1F800) | (opcode & 0x7FF);
+    
+    // Prefetch the function pointer to reduce indirect call latency
+    // This is especially beneficial on ARM64 where memory latency is higher
+#if defined(__GNUC__) || defined(__clang__)
+    __builtin_prefetch(&opcodeGrabber[dispatch_idx], 0, 3);
+#endif
+    
     opcodeGrabber[dispatch_idx](opcode);
 }
 
@@ -348,9 +367,21 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
 
         opcode = ppc_read_instruction(pc_real);
         
+        // Architecture-specific prefetch optimizations
         // Prefetch next instruction to reduce memory latency
-        // This hints to the CPU to load the next instruction into cache
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
+        // ARM64: Aggressive prefetching with PRFM instruction
+        // ARM64 has higher memory latency than x86-64, so prefetch is more critical
+        // Prefetch 2 instructions ahead for better pipeline coverage
+        __builtin_prefetch(pc_real + 4, 0, 3);  // Next instruction
+        __builtin_prefetch(pc_real + 8, 0, 2);  // Instruction after that (lower priority)
+#elif defined(__x86_64__) || defined(_M_X64)
+        // x86-64: Conservative prefetching
+        // x86-64 has good hardware prefetching, so we just hint the next instruction
+        // Using locality hint 1 (moderate temporal locality)
+        __builtin_prefetch(pc_real + 4, 0, 1);
+#elif defined(__GNUC__) || defined(__clang__)
+        // Generic: Standard prefetch for next instruction
         __builtin_prefetch(pc_real + 4, 0, 3);
 #endif
         
