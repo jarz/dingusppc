@@ -119,5 +119,5 @@ int test_ppc_disasm() {
 
     cout << "Tested " << testdata.size() << " instructions. Failed: " << nfailed << "." << endl;
 
-    return 0;
+    return nfailed;
 }

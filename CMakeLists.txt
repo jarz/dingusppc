@@ -51,6 +51,7 @@ endif()
 
 option(DPPC_BUILD_PPC_TESTS  "Build PowerPC tests" OFF)
 option(DPPC_BUILD_BENCHMARKS "Build benchmarking programs" OFF)
+option(DPPC_BUILD_FUZZ       "Build fuzz targets (requires Clang and libFuzzer)" OFF)
 
 option(DPPC_68K_DEBUGGER   "Enable 68k debugging" OFF)
 
@@ -232,6 +233,66 @@ if (DPPC_BUILD_PPC_TESTS)
         "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcfloattests.csv"
         "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcdisasmtest.csv"
         $<TARGET_FILE_DIR:${PROJECT_NAME}>)
+endif()
+
+if (DPPC_BUILD_FUZZ)
+    file(GLOB FUZZ_PPC_SOURCES "${PROJECT_SOURCE_DIR}/cpu/ppc/*.cpp"
+                               "${PROJECT_SOURCE_DIR}/cpu/ppc/*.h")
+
+    set(FUZZ_COMMON_OBJECTS $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+
+    set(FUZZ_COMMON_LIBS SDL2::SDL2main SDL2::SDL2 cubeb
+                         ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+
+    # Helper: declare a fuzz target with the standard flags.
+    # Combines libFuzzer with ASan + UBSan for maximum bug detection.
+    function(add_fuzz_target TARGET_NAME)
+        target_compile_definitions(${TARGET_NAME} PRIVATE PPC_TESTS)
+        target_compile_options(${TARGET_NAME} PRIVATE
+            -fsanitize=fuzzer,address,undefined
+            -fno-sanitize-recover=undefined
+            -fno-omit-frame-pointer)
+        target_link_options(${TARGET_NAME} PRIVATE
+            -fsanitize=fuzzer,address,undefined)
+        target_link_libraries(${TARGET_NAME} PRIVATE ${FUZZ_COMMON_LIBS})
+        if (DPPC_68K_DEBUGGER)
+            target_link_libraries(${TARGET_NAME} PRIVATE capstone)
+        endif()
+    endfunction()
+
+    # 1) Single-instruction PPC fuzzer
+    add_executable(fuzz_ppc_single_instruction
+        "${PROJECT_SOURCE_DIR}/fuzz/fuzz_ppc_single_instruction.cpp"
+        ${FUZZ_PPC_SOURCES}
+        ${FUZZ_COMMON_OBJECTS})
+    add_fuzz_target(fuzz_ppc_single_instruction)
+
+    # 2) PPC disassembler fuzzer
+    add_executable(fuzz_ppc_disasm
+        "${PROJECT_SOURCE_DIR}/fuzz/fuzz_ppc_disasm.cpp"
+        ${FUZZ_PPC_SOURCES}
+        ${FUZZ_COMMON_OBJECTS})
+    add_fuzz_target(fuzz_ppc_disasm)
+
+    # 3) MMIO device register fuzzer
+    add_executable(fuzz_mmio_device
+        "${PROJECT_SOURCE_DIR}/fuzz/fuzz_mmio_device.cpp"
+        "${PROJECT_SOURCE_DIR}/fuzz/fuzz_mmio_extras.cpp"
+        ${FUZZ_PPC_SOURCES}
+        ${FUZZ_COMMON_OBJECTS})
+    add_fuzz_target(fuzz_mmio_device)
+
+    # 4) PCI config space fuzzer
+    add_executable(fuzz_pci_cfg
+        "${PROJECT_SOURCE_DIR}/fuzz/fuzz_pci_cfg.cpp"
+        ${FUZZ_PPC_SOURCES}
+        ${FUZZ_COMMON_OBJECTS})
+    add_fuzz_target(fuzz_pci_cfg)
 endif()
 
 install (TARGETS dingusppc DESTINATION ${PROJECT_SOURCE_DIR}/build)
