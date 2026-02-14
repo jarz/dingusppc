@@ -395,19 +395,18 @@ typedef enum {
 // Extracts primary opcode (bits 0-5) and modifier (bits 21-31)
 #define OPCODE_TO_DISPATCH_INDEX(op) (((op) >> 15 & 0x1F800) | ((op) & 0x7FF))
 
-// Dispatch tables: one per execution mode (labels are function-scoped)
-static void* DirectThreadedDispatchTable_main[DISPATCH_TABLE_SIZE];
-static void* DirectThreadedDispatchTable_until[DISPATCH_TABLE_SIZE];
-static void* DirectThreadedDispatchTable_debug[DISPATCH_TABLE_SIZE];
-static bool dispatch_table_main_initialized = false;
-static bool dispatch_table_until_initialized = false;
-static bool dispatch_table_debug_initialized = false;
+// Dispatch table: shared across all instantiations
+// IMPORTANT: Must be initialized from FIRST instantiation that runs
+// Labels are captured from that instantiation and work for all because
+// the label code is identical in each template instantiation
+static void* DirectThreadedDispatchTable[DISPATCH_TABLE_SIZE];
+static bool dispatch_table_initialized = false;
 
 // Macro to dispatch to next instruction
-#define DISPATCH_NEXT(dispatch_table) do { \
+#define DISPATCH_NEXT() do { \
     opcode = ppc_read_instruction(pc_real); \
     __builtin_prefetch(pc_real + 4, 0, 3); \
-    goto *dispatch_table[OPCODE_TO_DISPATCH_INDEX(opcode)]; \
+    goto *DirectThreadedDispatchTable[OPCODE_TO_DISPATCH_INDEX(opcode)]; \
 } while(0)
 
 // Helper macros for common instruction patterns
@@ -442,7 +441,8 @@ static bool dispatch_table_debug_initialized = false;
 } while(0)
 
 // Threaded interpreter with label-based dispatch
-// Each template instantiation has its own dispatch table with labels from that scope
+// Single dispatch table shared across all execution modes
+// Labels are function-scoped but identical across template instantiations
 template <ppc_exec_type_t exec_type>
 static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
 {
@@ -452,45 +452,22 @@ static void ppc_exec_inner_threaded(uint32_t start_addr, uint32_t size)
     PPCOpcode* opcode_grabber = ppc_opcode_grabber;
     uint8_t* pc_real;
     
-    // Select the dispatch table for this execution mode
-    void** dispatch_table;
-    bool* table_initialized;
-    const char* mode_name;
-    
-    if constexpr (exec_type == main) {
-        dispatch_table = DirectThreadedDispatchTable_main;
-        table_initialized = &dispatch_table_main_initialized;
-        mode_name = "main";
-    } else if constexpr (exec_type == until) {
-        dispatch_table = DirectThreadedDispatchTable_until;
-        table_initialized = &dispatch_table_until_initialized;
-        mode_name = "until";
-    } else { // debug
-        dispatch_table = DirectThreadedDispatchTable_debug;
-        table_initialized = &dispatch_table_debug_initialized;
-        mode_name = "debug";
-    }
-    
-    // Initialize dispatch table on first run
-    if (!*table_initialized) {
+    // Initialize dispatch table on first run (from whichever instantiation runs first)
+    if (!dispatch_table_initialized) {
         // Fill entire table with "call_function" label initially
         for (size_t i = 0; i < DISPATCH_TABLE_SIZE; i++) {
-            dispatch_table[i] = &&call_function;
+            DirectThreadedDispatchTable[i] = &&call_function;
         }
         
-        // Map hot instructions to inline handlers
+        // Map hot instructions to inline handlers  
         // addi (opcode 14): Add immediate
         for (uint32_t mod = 0; mod < 2048; mod++) {
-            dispatch_table[(14 << 11) | mod] = &&handler_addi;
-        }
-        // addis (opcode 15): Add immediate shifted
-        for (uint32_t mod = 0; mod < 2048; mod++) {
-            dispatch_table[(15 << 11) | mod] = &&handler_addis;
+            DirectThreadedDispatchTable[(14 << 11) | mod] = &&handler_addi;
         }
         
-        *table_initialized = true;
-        LOG_F(INFO, "Direct-threaded interpreter (%s): dispatch table initialized with %d entries (inline handlers active)", 
-              mode_name, (int)DISPATCH_TABLE_SIZE);
+        dispatch_table_initialized = true;
+        LOG_F(INFO, "Direct-threaded interpreter: dispatch table initialized with %d entries (addi inlined)", 
+              (int)DISPATCH_TABLE_SIZE);
     }
     
 dispatch_start:
@@ -510,7 +487,7 @@ dispatch_start:
     }
 
     // Start dispatching - fetch first instruction
-    DISPATCH_NEXT(dispatch_table);
+    DISPATCH_NEXT();
 
 // ============================================================================
 // INLINE LABEL-BASED INSTRUCTION HANDLERS
