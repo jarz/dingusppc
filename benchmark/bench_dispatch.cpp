@@ -18,14 +18,18 @@ void ppc_exception_handler(Except_Type exception_type, uint32_t srr1_bits) {
 #endif
 
 // Tight loop with minimal ALU work - focuses on dispatch overhead
-// addi r3, r3, 1    (increment register)
-// cmpi cr0, r3, N   (compare with limit)
-// bne 0             (branch back if not equal)
-// blr               (return)
+// lis   r4, HI(iter)   (load loop bound upper)
+// ori   r4, r4, LO(iter)
+// addi  r3, r3, 1      (increment register)
+// cmpw  r3, r4         (compare with full 32-bit bound)
+// bne   -12            (branch back to addi)
+// blr                  (return)
 uint32_t tight_loop_code[] = {
+    0x3C800000,  // lis r4, 0       (HI patched)
+    0x60840000,  // ori r4, r4, 0   (LO patched)
     0x38630001,  // addi r3, r3, 1
-    0x2C030000,  // cmpi cr0, r3, 0 (will be patched)
-    0x4082FFF8,  // bne -8  (branch back 2 instructions)
+    0x7C032000,  // cmpw r3, r4
+    0x4082FFF4,  // bne -12 (back to addi)
     0x4E800020   // blr
 };
 
@@ -57,10 +61,11 @@ void run_benchmark(const char* name, uint32_t* code, size_t code_size,
         mmu_write_vmem<uint32_t>(0, i * 4, code[i]);
     }
     
-    // Patch the comparison value
-    uint32_t cmp_instr = code[1];
-    cmp_instr = (cmp_instr & 0xFFFF0000) | (iterations & 0xFFFF);
-    mmu_write_vmem<uint32_t>(0, 4, cmp_instr);
+    // Patch the loop bound (full 32-bit) into lis/ori pair
+    uint32_t hi = (iterations >> 16) & 0xFFFF;
+    uint32_t lo = iterations & 0xFFFF;
+    mmu_write_vmem<uint32_t>(0, 0, (code[0] & 0xFFFF0000) | hi);
+    mmu_write_vmem<uint32_t>(0, 4, (code[1] & 0xFFFF0000) | lo);
     
     // Run benchmark
     for (int i = 0; i < test_iterations; i++) {
@@ -111,18 +116,19 @@ int main(int argc, char** argv) {
     
     // Test 1: Very tight loop (1M iterations) - pure dispatch overhead
     LOG_F(INFO, "\nTest 1: Tight ALU loop (measures dispatch + minimal ALU work)");
+    constexpr uint32_t tight_loop_target_pc = sizeof(tight_loop_code) - 4; // blr
     run_benchmark("1M iterations", tight_loop_code, sizeof(tight_loop_code), 
-                  1000000, 0x0C);
+                  1000000, tight_loop_target_pc);
     
     // Test 2: Medium loop (100K iterations)
     LOG_F(INFO, "\nTest 2: Medium loop");
     run_benchmark("100K iterations", tight_loop_code, sizeof(tight_loop_code), 
-                  100000, 0x0C);
+                  100000, tight_loop_target_pc);
     
     // Test 3: Small loop (10K iterations)
     LOG_F(INFO, "\nTest 3: Small loop");
     run_benchmark("10K iterations", tight_loop_code, sizeof(tight_loop_code), 
-                  10000, 0x0C);
+                  10000, tight_loop_target_pc);
     
     delete(grackle_obj);
     return 0;
