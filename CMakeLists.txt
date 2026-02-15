@@ -302,6 +302,32 @@ if (DPPC_BUILD_PPC_TESTS)
     endif()
     
     add_test(NAME test_perfcounter COMMAND test_perfcounter WORKING_DIRECTORY $<TARGET_FILE_DIR:test_perfcounter>)
+    
+    # Add IABR execution test
+    add_executable(test_iabr_execution ${PROJECT_SOURCE_DIR}/cpu/ppc/test/test_iabr_execution.cpp
+                            $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+    
+    target_compile_definitions(test_iabr_execution PRIVATE PPC_TESTS)
+    
+    if (WIN32)
+        target_link_libraries(test_iabr_execution PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(test_iabr_execution PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(test_iabr_execution PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+    
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(test_iabr_execution PRIVATE capstone)
+    endif()
+    
+    add_test(NAME test_iabr_execution COMMAND test_iabr_execution WORKING_DIRECTORY $<TARGET_FILE_DIR:test_iabr_execution>)
 endif()
 
 if (DPPC_BUILD_BENCHMARKS)
