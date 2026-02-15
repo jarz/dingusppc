@@ -125,6 +125,62 @@ enum SPR : int {
     PIR     = 1023, // Processor Identification Register
 };
 
+/** HID0 (Hardware Implementation Dependent 0) bit definitions */
+/** These bits vary by processor, these are common ones */
+enum HID0_Bits : uint32_t {
+    HID0_EMCP   = 1U << 31,  // Enable Machine Check Pin
+    HID0_EBA    = 1U << 29,  // Enable Bus Address Parity
+    HID0_EBD    = 1U << 28,  // Enable Bus Data Parity
+    HID0_BCLK   = 1U << 27,  // Bus Clock (603e, 604e)
+    HID0_EICE   = 1U << 26,  // Enable ICE Output
+    HID0_ECLK   = 1U << 25,  // External Clock
+    HID0_PAR    = 1U << 24,  // Precharge Address Register
+    HID0_DOZE   = 1U << 23,  // Doze mode enable (603e)
+    HID0_NAP    = 1U << 22,  // Nap mode enable (603e)
+    HID0_SLEEP  = 1U << 21,  // Sleep mode enable (603e)
+    HID0_DPM    = 1U << 20,  // Dynamic Power Management (603e)
+    HID0_NHR    = 1U << 16,  // Not Hard Reset
+    HID0_ICE    = 1U << 15,  // Instruction Cache Enable
+    HID0_DCE    = 1U << 14,  // Data Cache Enable
+    HID0_ILOCK  = 1U << 13,  // Instruction Cache Lock
+    HID0_DLOCK  = 1U << 12,  // Data Cache Lock
+    HID0_ICFI   = 1U << 11,  // Instruction Cache Flash Invalidate
+    HID0_DCFI   = 1U << 10,  // Data Cache Flash Invalidate
+    HID0_SPD    = 1U << 9,   // Speculative Cache Access Disable
+    HID0_IFEM   = 1U << 8,   // Instruction Fetch Enable for M bit (603e)
+    HID0_SGE    = 1U << 7,   // Store Gathering Enable
+    HID0_DCFA   = 1U << 6,   // Data Cache Flush Assist (603e)
+    HID0_BTIC   = 1U << 5,   // Branch Target Instruction Cache Enable
+    HID0_ABE    = 1U << 3,   // Address Broadcast Enable
+    HID0_BHT    = 1U << 2,   // Branch History Table Enable
+    HID0_NOOPTI = 1U << 0,   // No-Op Touch Instructions (dcbt, dcbtst)
+};
+
+/** MMCR0 (Monitor Mode Control Register 0) bit definitions */
+enum MMCR0_Bits : uint32_t {
+    MMCR0_FC    = 1U << 31,  // Freeze Counters
+    MMCR0_FCS   = 1U << 30,  // Freeze Counters in Supervisor
+    MMCR0_FCP   = 1U << 29,  // Freeze Counters in Problem State
+    MMCR0_FCM1  = 1U << 28,  // Freeze Counters while Mark=1
+    MMCR0_FCM0  = 1U << 27,  // Freeze Counters while Mark=0
+    MMCR0_PMXE  = 1U << 26,  // Performance Monitor Exception Enable
+    MMCR0_PMAO  = 1U << 7,   // Performance Monitor Alert Output
+    // Event selector fields and other bits omitted for brevity
+};
+
+/** DABR (Data Address Breakpoint Register) bit definitions */
+enum DABR_Bits : uint32_t {
+    DABR_BT     = 1U << 2,   // Breakpoint Translation Enable
+    DABR_DW     = 1U << 1,   // Data Write Enable
+    DABR_DR     = 1U << 0,   // Data Read Enable
+};
+
+/** IABR (Instruction Address Breakpoint Register) bit definitions */
+enum IABR_Bits : uint32_t {
+    IABR_BE     = 1U << 0,   // Breakpoint Enable (bit 31 in some docs)
+    IABR_TE     = 1U << 1,   // Translation Enable
+};
+
 /** symbolic names for common PPC processors */
 enum PPC_VER : uint32_t {
     MPC601      = 0x00010001,

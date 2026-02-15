@@ -994,11 +994,18 @@ void dppc_interpreter::ppc_mfspr(uint32_t opcode) {
     ppc_grab_dab(opcode);
     uint32_t ref_spr = (reg_b << 5) | reg_a;
 
-    if (ref_spr & 0x10) {
+    // Enhanced privilege checking
+    // SPRs 0-15: User-accessible
+    // SPRs 16-1023: Supervisor-accessible
+    // SPRs 1024-2047: Supervisor/Hypervisor-accessible (implementation-dependent)
+    bool is_supervisor_spr = (ref_spr >= 16 && ref_spr < 1024) || (ref_spr >= 1024);
+    
+    if (is_supervisor_spr) {
 #ifdef CPU_PROFILING
         num_supervisor_instrs++;
 #endif
         if (ppc_state.msr & MSR::PR) {
+            // Problem state (user mode) - not allowed to access supervisor SPRs
             ppc_exception_handler(Except_Type::EXC_PROGRAM, Exc_Cause::NOT_ALLOWED);
             return;
         }
@@ -1120,11 +1127,18 @@ void dppc_interpreter::ppc_mtspr(uint32_t opcode) {
     ppc_grab_dab(opcode);
     uint32_t ref_spr = (reg_b << 5) | reg_a;
 
-    if (ref_spr & 0x10) {
+    // Enhanced privilege checking
+    // SPRs 0-15: User-accessible
+    // SPRs 16-1023: Supervisor-accessible
+    // SPRs 1024-2047: Supervisor/Hypervisor-accessible (implementation-dependent)
+    bool is_supervisor_spr = (ref_spr >= 16 && ref_spr < 1024) || (ref_spr >= 1024);
+    
+    if (is_supervisor_spr) {
 #ifdef CPU_PROFILING
         num_supervisor_instrs++;
 #endif
         if (ppc_state.msr & MSR::PR) {
+            // Problem state (user mode) - not allowed to access supervisor SPRs
             ppc_exception_handler(Except_Type::EXC_PROGRAM, Exc_Cause::NOT_ALLOWED);
             return;
         }
@@ -1222,17 +1236,71 @@ void dppc_interpreter::ppc_mtspr(uint32_t opcode) {
     case SPR::HID0:
     case SPR::HID1:
         // Hardware implementation-dependent registers
+        // Log significant changes (cache enable/disable, power management)
+        if (ref_spr == SPR::HID0) {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            uint32_t changed = val ^ old_val;
+            
+            if (changed & HID0_ICE) {
+                LOG_F(INFO, "HID0: Instruction cache %s", 
+                      (val & HID0_ICE) ? "enabled" : "disabled");
+            }
+            if (changed & HID0_DCE) {
+                LOG_F(INFO, "HID0: Data cache %s", 
+                      (val & HID0_DCE) ? "enabled" : "disabled");
+            }
+            if (changed & HID0_ICFI) {
+                LOG_F(INFO, "HID0: Instruction cache flash invalidate");
+            }
+            if (changed & HID0_DCFI) {
+                LOG_F(INFO, "HID0: Data cache flash invalidate");
+            }
+            if (changed & (HID0_DOZE | HID0_NAP | HID0_SLEEP)) {
+                LOG_F(INFO, "HID0: Power management mode changed (DOZE:%d NAP:%d SLEEP:%d)",
+                      !!(val & HID0_DOZE), !!(val & HID0_NAP), !!(val & HID0_SLEEP));
+            }
+            if (changed & HID0_DPM) {
+                LOG_F(INFO, "HID0: Dynamic power management %s",
+                      (val & HID0_DPM) ? "enabled" : "disabled");
+            }
+        }
         ppc_state.spr[ref_spr] = val;
         break;
     case SPR::MMCR0:
     case SPR::MMCR1:
+        // Performance monitoring control registers
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val;
+            
+            if (ref_spr == SPR::MMCR0) {
+                uint32_t changed = val ^ old_val;
+                if (changed & MMCR0_FC) {
+                    LOG_F(INFO, "MMCR0: Counters %s", 
+                          (val & MMCR0_FC) ? "frozen" : "running");
+                }
+                if (changed & MMCR0_PMXE) {
+                    LOG_F(INFO, "MMCR0: Performance monitor exceptions %s",
+                          (val & MMCR0_PMXE) ? "enabled" : "disabled");
+                }
+                if ((val & (MMCR0_FCS | MMCR0_FCP)) != (old_val & (MMCR0_FCS | MMCR0_FCP))) {
+                    LOG_F(INFO, "MMCR0: Freeze control - Supervisor:%d Problem:%d",
+                          !!(val & MMCR0_FCS), !!(val & MMCR0_FCP));
+                }
+            }
+        }
+        break;
     case SPR::PMC1:
     case SPR::PMC2:
     case SPR::PMC3:
     case SPR::PMC4:
+        // Performance monitoring counters - can be written to set/clear
+        ppc_state.spr[ref_spr] = val;
+        LOG_F(9, "PMC%d set to 0x%08X", ref_spr - SPR::PMC1 + 1, val);
+        break;
     case SPR::SIA:
     case SPR::SDA:
-        // Performance monitoring registers
+        // Sampled instruction/data address registers
         ppc_state.spr[ref_spr] = val;
         break;
     case SPR::EAR:
@@ -1245,13 +1313,44 @@ void dppc_interpreter::ppc_mtspr(uint32_t opcode) {
         break;
     case SPR::IABR:
         // Instruction Address Breakpoint Register
-        // Store the address, masking out the low bits
-        ppc_state.spr[ref_spr] = val & ~0x3UL;
+        // Store the address, masking out the low bits (word-aligned)
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val & ~0x3UL;
+            
+            // Log when breakpoint is enabled/disabled or address changes
+            if ((val & ~0x3UL) != (old_val & ~0x3UL)) {
+                if (val & ~0x3UL) {
+                    LOG_F(INFO, "IABR: Instruction breakpoint set at 0x%08X", val & ~0x3UL);
+                } else {
+                    LOG_F(INFO, "IABR: Instruction breakpoint cleared");
+                }
+            }
+        }
         break;
     case SPR::DABR:
         // Data Address Breakpoint Register
-        // Store the address and control bits
-        ppc_state.spr[ref_spr] = val & ~0x7UL;
+        // Store the address and control bits (bits 0-2: BT, DW, DR)
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val;
+            
+            // Log when breakpoint is enabled/disabled or configuration changes
+            uint32_t addr = val & ~0x7UL;
+            bool read_enable = val & DABR_DR;
+            bool write_enable = val & DABR_DW;
+            bool trans_enable = val & DABR_BT;
+            
+            if ((addr != (old_val & ~0x7UL)) || 
+                ((val & 0x7) != (old_val & 0x7))) {
+                if (read_enable || write_enable) {
+                    LOG_F(INFO, "DABR: Data breakpoint at 0x%08X (Read:%d Write:%d Trans:%d)",
+                          addr, read_enable, write_enable, trans_enable);
+                } else {
+                    LOG_F(INFO, "DABR: Data breakpoint cleared");
+                }
+            }
+        }
         break;
     default:
         // Check if this is a valid but unimplemented SPR

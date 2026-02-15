@@ -113,6 +113,7 @@ int main() {
     if (test_spr_rw("SPRG3", SPR::SPRG3, 0x44444444, true)) passed++; else failed++;
     
     // Test hardware implementation-dependent registers (supervisor only)
+    // HID0 value with ICE bit set (0x8000) to test cache enable logging
     if (test_spr_rw("HID0", SPR::HID0, 0x80008000, true)) passed++; else failed++;
     if (test_spr_rw("HID1", SPR::HID1, 0x40004000, true)) passed++; else failed++;
     
@@ -130,7 +131,8 @@ int main() {
     if (test_spr_rw("EAR", SPR::EAR, 0x12345678, true)) passed++; else failed++;
     if (test_spr_ro("PIR", SPR::PIR, true)) passed++; else failed++;  // PIR is read-only
     if (test_spr_rw("IABR", SPR::IABR, 0x10001000, true)) passed++; else failed++;
-    if (test_spr_rw("DABR", SPR::DABR, 0x20002000, true)) passed++; else failed++;
+    // DABR with breakpoint bits set (DW=1, DR=1 for read/write breakpoint)
+    if (test_spr_rw("DABR", SPR::DABR, 0x20002003, true)) passed++; else failed++;
     
     cout << endl << "=== Results ===" << endl;
     cout << "Passed: " << passed << endl;
