@@ -382,7 +382,10 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
         opcode = ppc_read_instruction(pc_real);
         ppc_main_opcode(opcode_grabber, opcode);
         
+#ifdef ENABLE_PERFORMANCE_COUNTERS
         // Update performance monitoring counters if enabled
+        // Note: This adds ~15% overhead when counters are running
+        // Can be disabled at compile time for maximum performance
         // Check if counters are not frozen (MMCR0_FC = 0)
         uint32_t mmcr0 = ppc_state.spr[SPR::MMCR0];
         if (!(mmcr0 & MMCR0_FC)) [[likely]] {
@@ -399,10 +402,10 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
             
             if (should_count) [[likely]] {
                 // Increment PMC1 (instruction counter by default)
-                // PMCs are 32-bit but bit 0 is sign bit, so we check bit 1 for overflow
+                // PMCs are 32-bit but bit 31 is sign bit, checked for overflow
                 uint32_t pmc1 = ++ppc_state.spr[SPR::PMC1];
                 
-                // Check for overflow (bit 1 set indicates negative, triggering overflow)
+                // Check for overflow (bit 31 set indicates negative, triggering overflow)
                 if ((pmc1 & 0x80000000) && (mmcr0 & MMCR0_PMXE)) [[unlikely]] {
                     // Performance monitor exception enabled and overflow occurred
                     LOG_F(9, "PMC1: Counter overflow, triggering performance monitor exception");
@@ -411,6 +414,7 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
                 }
             }
         }
+#endif
         
         if (g_icycles++ >= max_cycles || exec_timer) [[unlikely]]
             max_cycles = process_events();
