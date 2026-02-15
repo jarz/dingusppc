@@ -68,8 +68,8 @@ int main() {
     initialize_ppc_opcode_table();
     
     // Set MSR to allow testing (supervisor mode, machine check enabled)
-    int new_msr = MSR::ME | MSR::IP;
-    ppc_msr_did_change(ppc_state.msr, new_msr, false);
+    int initial_msr = MSR::ME | MSR::IP;
+    ppc_msr_did_change(ppc_state.msr, initial_msr, false);
     
     cout << "Testing SPR read/write functionality..." << endl << endl;
     
