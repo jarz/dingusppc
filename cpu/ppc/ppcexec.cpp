@@ -381,6 +381,37 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
 
         opcode = ppc_read_instruction(pc_real);
         ppc_main_opcode(opcode_grabber, opcode);
+        
+        // Update performance monitoring counters if enabled
+        // Check if counters are not frozen (MMCR0_FC = 0)
+        uint32_t mmcr0 = ppc_state.spr[SPR::MMCR0];
+        if (!(mmcr0 & MMCR0_FC)) [[likely]] {
+            // Check freeze control based on privilege mode
+            bool in_supervisor = !(ppc_state.msr & MSR::PR);
+            bool should_count = true;
+            
+            if (in_supervisor && (mmcr0 & MMCR0_FCS)) {
+                should_count = false;  // Frozen in supervisor mode
+            }
+            if (!in_supervisor && (mmcr0 & MMCR0_FCP)) {
+                should_count = false;  // Frozen in problem state
+            }
+            
+            if (should_count) [[likely]] {
+                // Increment PMC1 (instruction counter by default)
+                // PMCs are 32-bit but bit 0 is sign bit, so we check bit 1 for overflow
+                uint32_t pmc1 = ++ppc_state.spr[SPR::PMC1];
+                
+                // Check for overflow (bit 1 set indicates negative, triggering overflow)
+                if ((pmc1 & 0x80000000) && (mmcr0 & MMCR0_PMXE)) [[unlikely]] {
+                    // Performance monitor exception enabled and overflow occurred
+                    LOG_F(9, "PMC1: Counter overflow, triggering performance monitor exception");
+                    // TODO: Trigger performance monitor interrupt
+                    // For now, just log it - full exception requires interrupt infrastructure
+                }
+            }
+        }
+        
         if (g_icycles++ >= max_cycles || exec_timer) [[unlikely]]
             max_cycles = process_events();
 
