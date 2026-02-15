@@ -290,6 +290,56 @@ static void force_cycle_counter_reload()
     exec_timer = true;
 }
 
+// Check if IABR (Instruction Address Breakpoint) should trigger
+static inline bool check_iabr_match(uint32_t pc_addr) {
+    uint32_t iabr = ppc_state.spr[SPR::IABR];
+    
+    // IABR breakpoint is only active if address is non-zero
+    if ((iabr & ~0x3UL) == 0) {
+        return false;
+    }
+    
+    // Check if PC matches IABR address (word-aligned)
+    uint32_t breakpoint_addr = iabr & ~0x3UL;
+    if ((pc_addr & ~0x3UL) == breakpoint_addr) {
+        LOG_F(INFO, "IABR: Instruction breakpoint triggered at PC=0x%08X", pc_addr);
+        return true;
+    }
+    
+    return false;
+}
+
+// Check if DABR (Data Address Breakpoint) should trigger
+// Returns true if breakpoint should fire
+static inline bool check_dabr_match(uint32_t addr, bool is_write) {
+    uint32_t dabr = ppc_state.spr[SPR::DABR];
+    
+    // Check if appropriate enable bit is set
+    bool read_enabled = dabr & DABR_DR;
+    bool write_enabled = dabr & DABR_DW;
+    
+    if (is_write && !write_enabled) {
+        return false;
+    }
+    if (!is_write && !read_enabled) {
+        return false;
+    }
+    
+    // Check if address matches (DABR address is bits 31:3, low 3 bits are control)
+    uint32_t breakpoint_addr = dabr & ~0x7UL;
+    if (breakpoint_addr == 0) {
+        return false;
+    }
+    
+    if ((addr & ~0x7UL) == breakpoint_addr) {
+        LOG_F(INFO, "DABR: Data breakpoint triggered at addr=0x%08X (%s)", 
+              addr, is_write ? "write" : "read");
+        return true;
+    }
+    
+    return false;
+}
+
 typedef enum {
     main,
     until,
@@ -319,6 +369,14 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
             eb_end     = page_start + PPC_PAGE_SIZE - 1;
             exec_flags = 0;
             pc_real    = mmu_translate_imem(eb_start);
+        }
+
+        // Check for instruction address breakpoint (IABR)
+        if (check_iabr_match(ppc_state.pc)) [[unlikely]] {
+            // Trigger trace exception for instruction breakpoint
+            // This allows debugger to intercept at the breakpoint
+            ppc_exception_handler(Except_Type::EXC_TRACE, 0);
+            if (!power_on) break;  // Debugger may have stopped execution
         }
 
         opcode = ppc_read_instruction(pc_real);
