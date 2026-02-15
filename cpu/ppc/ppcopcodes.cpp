@@ -1020,17 +1020,14 @@ void dppc_interpreter::ppc_mfspr(uint32_t opcode) {
     }
     case SPR::LR:
     case SPR::CTR:
-    case SPR::XER:
     case SPR::DSISR:
     case SPR::DAR:
-    case SPR::SDR1:
     case SPR::SRR0:
     case SPR::SRR1:
     case SPR::SPRG0:
     case SPR::SPRG1:
     case SPR::SPRG2:
     case SPR::SPRG3:
-    case SPR::PVR:
     case SPR::MMCR0:
     case SPR::PMC1:
     case SPR::PMC2:
