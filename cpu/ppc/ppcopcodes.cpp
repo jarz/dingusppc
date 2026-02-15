@@ -1018,6 +1018,36 @@ void dppc_interpreter::ppc_mfspr(uint32_t opcode) {
         ppc_state.spr[TBL_S] = uint32_t(tbr_value);
         break;
     }
+    case SPR::DSISR:
+    case SPR::DAR:
+    case SPR::SRR0:
+    case SPR::SRR1:
+        // Exception handling registers - can be read by software
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::SPRG0:
+    case SPR::SPRG1:
+    case SPR::SPRG2:
+    case SPR::SPRG3:
+        // General purpose storage registers
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::HID0:
+    case SPR::HID1:
+        // Hardware implementation-dependent registers
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::MMCR0:
+    case SPR::MMCR1:
+    case SPR::PMC1:
+    case SPR::PMC2:
+    case SPR::PMC3:
+    case SPR::PMC4:
+    case SPR::SIA:
+    case SPR::SDA:
+        // Performance monitoring registers
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
     default:
         // FIXME: Unknown SPR should be noop or illegal instruction.
         ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
@@ -1112,6 +1142,36 @@ void dppc_interpreter::ppc_mtspr(uint32_t opcode) {
     case 543:
         ppc_state.spr[ref_spr] = val;
         dbat_update(ref_spr);
+        break;
+    case SPR::DSISR:
+    case SPR::DAR:
+    case SPR::SRR0:
+    case SPR::SRR1:
+        // Exception handling registers - can be written by software
+        ppc_state.spr[ref_spr] = val;
+        break;
+    case SPR::SPRG0:
+    case SPR::SPRG1:
+    case SPR::SPRG2:
+    case SPR::SPRG3:
+        // General purpose storage registers
+        ppc_state.spr[ref_spr] = val;
+        break;
+    case SPR::HID0:
+    case SPR::HID1:
+        // Hardware implementation-dependent registers
+        ppc_state.spr[ref_spr] = val;
+        break;
+    case SPR::MMCR0:
+    case SPR::MMCR1:
+    case SPR::PMC1:
+    case SPR::PMC2:
+    case SPR::PMC3:
+    case SPR::PMC4:
+    case SPR::SIA:
+    case SPR::SDA:
+        // Performance monitoring registers
+        ppc_state.spr[ref_spr] = val;
         break;
     default:
         // FIXME: Unknown SPR should be noop or illegal instruction.

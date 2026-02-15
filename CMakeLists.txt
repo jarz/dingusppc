@@ -138,6 +138,8 @@ if (APPLE)
 endif()
 
 file(GLOB TEST_SOURCES "${PROJECT_SOURCE_DIR}/cpu/ppc/test/*.cpp")
+# Exclude standalone test files that have their own main()
+list(FILTER TEST_SOURCES EXCLUDE REGEX ".*_standalone\\.cpp$")
 
 add_executable(dingusppc ${SOURCES} $<TARGET_OBJECTS:core>
                                     $<TARGET_OBJECTS:cpu_ppc>
@@ -198,6 +200,30 @@ if (DPPC_BUILD_PPC_TESTS)
 
     enable_testing()
     add_test(NAME testppc COMMAND testppc WORKING_DIRECTORY $<TARGET_FILE_DIR:testppc>)
+    
+    # Add standalone SPR test
+    add_executable(test_spr ${PROJECT_SOURCE_DIR}/cpu/ppc/test/test_spr_standalone.cpp
+                            $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+    
+    if (WIN32)
+        target_link_libraries(test_spr PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(test_spr PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(test_spr PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+    
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(test_spr PRIVATE capstone)
+    endif()
+    
+    add_test(NAME test_spr COMMAND test_spr WORKING_DIRECTORY $<TARGET_FILE_DIR:test_spr>)
 endif()
 
 if (DPPC_BUILD_BENCHMARKS)
