@@ -224,6 +224,32 @@ if (DPPC_BUILD_PPC_TESTS)
     endif()
     
     add_test(NAME test_spr COMMAND test_spr WORKING_DIRECTORY $<TARGET_FILE_DIR:test_spr>)
+    
+    # Add extended SPR validation test
+    add_executable(test_spr_extended ${PROJECT_SOURCE_DIR}/cpu/ppc/test/test_spr_extended_standalone.cpp
+                            $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+    
+    target_compile_definitions(test_spr_extended PRIVATE PPC_TESTS)
+    
+    if (WIN32)
+        target_link_libraries(test_spr_extended PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(test_spr_extended PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(test_spr_extended PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+    
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(test_spr_extended PRIVATE capstone)
+    endif()
+    
+    add_test(NAME test_spr_extended COMMAND test_spr_extended WORKING_DIRECTORY $<TARGET_FILE_DIR:test_spr_extended>)
 endif()
 
 if (DPPC_BUILD_BENCHMARKS)

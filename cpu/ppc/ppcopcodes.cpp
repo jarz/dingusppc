@@ -953,25 +953,27 @@ static void update_decrementer(bool update_time_stamp, uint32_t oldval, uint32_t
 // Helper function to check if an SPR number is architecturally valid
 // Returns true for valid SPR numbers, false for truly invalid ones
 static inline bool is_valid_spr(uint32_t spr_num) {
-    // PowerPC architecture defines SPR space as 0-1023
-    // Some implementations extend this to 0-2047
-    if (spr_num > 2047) {
+    // PowerPC architecture defines SPR space as 0-1023 (10 bits)
+    // Our spr array is ppc_state.spr[1024], so anything >= 1024 is invalid
+    if (spr_num >= 1024) {
         return false;
     }
     
-    // BAT registers (528-543) are always valid
-    if (spr_num >= 528 && spr_num <= 543) {
-        return true;
-    }
+    // For now, we'll be conservative and only allow known SPR ranges
+    // to avoid out-of-bounds access to unimplemented regions
     
-    // Common valid ranges (not exhaustive, but catches most invalid SPRs)
-    // Low range: 0-31 (user and supervisor SPRs)
+    // User and supervisor SPRs: 0-31
     if (spr_num <= 31) {
         return true;
     }
     
-    // Mid range: 256-287 (timebase, SPRGs, PVR)
+    // Timebase and control registers: 256-287
     if (spr_num >= 256 && spr_num <= 287) {
+        return true;
+    }
+    
+    // BAT registers: 528-543
+    if (spr_num >= 528 && spr_num <= 543) {
         return true;
     }
     
@@ -980,14 +982,14 @@ static inline bool is_valid_spr(uint32_t spr_num) {
         return true;
     }
     
-    // HID and other implementation-specific: 1008-1023
+    // Implementation-specific (HID, IABR, DABR, PIR): 1008-1023
     if (spr_num >= 1008 && spr_num <= 1023) {
         return true;
     }
     
-    // For any other SPR numbers, we'll allow them but they may not be implemented
-    // This is conservative - it allows implementation-specific SPRs
-    return true;
+    // Any other SPR number is considered invalid for now
+    // This can be expanded as we implement more SPRs
+    return false;
 }
 
 void dppc_interpreter::ppc_mfspr(uint32_t opcode) {
