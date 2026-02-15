@@ -250,6 +250,32 @@ if (DPPC_BUILD_PPC_TESTS)
     endif()
     
     add_test(NAME test_spr_extended COMMAND test_spr_extended WORKING_DIRECTORY $<TARGET_FILE_DIR:test_spr_extended>)
+    
+    # Add Phase 3 SPR test
+    add_executable(test_spr_phase3 ${PROJECT_SOURCE_DIR}/cpu/ppc/test/test_spr_phase3_standalone.cpp
+                            $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+    
+    target_compile_definitions(test_spr_phase3 PRIVATE PPC_TESTS)
+    
+    if (WIN32)
+        target_link_libraries(test_spr_phase3 PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(test_spr_phase3 PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(test_spr_phase3 PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+    
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(test_spr_phase3 PRIVATE capstone)
+    endif()
+    
+    add_test(NAME test_spr_phase3 COMMAND test_spr_phase3 WORKING_DIRECTORY $<TARGET_FILE_DIR:test_spr_phase3>)
 endif()
 
 if (DPPC_BUILD_BENCHMARKS)

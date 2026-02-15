@@ -972,8 +972,13 @@ static inline bool is_valid_spr(uint32_t spr_num) {
         return true;
     }
     
-    // BAT registers: 528-543
+    // BAT registers: 528-543 (IBAT0-3, DBAT0-3)
     if (spr_num >= 528 && spr_num <= 543) {
+        return true;
+    }
+    
+    // G4 additional BAT registers: 560-575 (IBAT4-7, DBAT4-7)
+    if (spr_num >= 560 && spr_num <= 575) {
         return true;
     }
     
@@ -982,7 +987,7 @@ static inline bool is_valid_spr(uint32_t spr_num) {
         return true;
     }
     
-    // Implementation-specific (HID, IABR, DABR, PIR): 1008-1023
+    // Implementation-specific (HID, IABR, DABR, PIR, L2CR, ICTC, MSSCR0, THRM): 1008-1023
     if (spr_num >= 1008 && spr_num <= 1023) {
         return true;
     }
@@ -1113,6 +1118,43 @@ void dppc_interpreter::ppc_mfspr(uint32_t opcode) {
         // Data Address Breakpoint Register
         ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
         break;
+    // G4 additional BAT registers
+    case SPR::IBAT4U:
+    case SPR::IBAT4L:
+    case SPR::IBAT5U:
+    case SPR::IBAT5L:
+    case SPR::IBAT6U:
+    case SPR::IBAT6L:
+    case SPR::IBAT7U:
+    case SPR::IBAT7L:
+    case SPR::DBAT4U:
+    case SPR::DBAT4L:
+    case SPR::DBAT5U:
+    case SPR::DBAT5L:
+    case SPR::DBAT6U:
+    case SPR::DBAT6L:
+    case SPR::DBAT7U:
+    case SPR::DBAT7L:
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::L2CR:
+        // L2 Cache Control Register
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::ICTC:
+        // Instruction Cache Throttling Control
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::MSSCR0:
+        // Memory Subsystem Control Register
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::THRM1:
+    case SPR::THRM2:
+    case SPR::THRM3:
+        // Thermal Management Registers
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
     default:
         // Check if this is a valid but unimplemented SPR
         if (!is_valid_spr(ref_spr)) {
@@ -1220,6 +1262,95 @@ void dppc_interpreter::ppc_mtspr(uint32_t opcode) {
     case 543:
         ppc_state.spr[ref_spr] = val;
         dbat_update(ref_spr);
+        break;
+    // G4 additional BAT registers (IBAT4-7, DBAT4-7)
+    case SPR::IBAT4U:
+    case SPR::IBAT4L:
+    case SPR::IBAT5U:
+    case SPR::IBAT5L:
+    case SPR::IBAT6U:
+    case SPR::IBAT6L:
+    case SPR::IBAT7U:
+    case SPR::IBAT7L:
+        ppc_state.spr[ref_spr] = val;
+        ibat_update(ref_spr);
+        LOG_F(9, "IBAT%d%c set to 0x%08X", 
+              (ref_spr - SPR::IBAT4U) / 2 + 4, 
+              (ref_spr & 1) ? 'L' : 'U', val);
+        break;
+    case SPR::DBAT4U:
+    case SPR::DBAT4L:
+    case SPR::DBAT5U:
+    case SPR::DBAT5L:
+    case SPR::DBAT6U:
+    case SPR::DBAT6L:
+    case SPR::DBAT7U:
+    case SPR::DBAT7L:
+        ppc_state.spr[ref_spr] = val;
+        dbat_update(ref_spr);
+        LOG_F(9, "DBAT%d%c set to 0x%08X",
+              (ref_spr - SPR::DBAT4U) / 2 + 4,
+              (ref_spr & 1) ? 'L' : 'U', val);
+        break;
+    case SPR::L2CR:
+        // L2 Cache Control Register
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val;
+            uint32_t changed = val ^ old_val;
+            
+            if (changed & L2CR_L2E) {
+                LOG_F(INFO, "L2CR: L2 cache %s", (val & L2CR_L2E) ? "enabled" : "disabled");
+            }
+            if (changed & L2CR_L2I) {
+                LOG_F(INFO, "L2CR: L2 cache global invalidate");
+            }
+            if (changed & L2CR_L2WT) {
+                LOG_F(INFO, "L2CR: L2 write-through %s", (val & L2CR_L2WT) ? "enabled" : "disabled");
+            }
+        }
+        break;
+    case SPR::ICTC:
+        // Instruction Cache Throttling Control
+        ppc_state.spr[ref_spr] = val;
+        LOG_F(9, "ICTC: Instruction cache throttling count set to %d", val & 0x1FF);
+        break;
+    case SPR::MSSCR0:
+        // Memory Subsystem Control Register
+        ppc_state.spr[ref_spr] = val;
+        LOG_F(9, "MSSCR0: Memory subsystem control set to 0x%08X", val);
+        break;
+    case SPR::THRM1:
+    case SPR::THRM2:
+        // Thermal Management Registers 1 & 2
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val;
+            uint32_t changed = val ^ old_val;
+            
+            if (changed & THRM_TIE) {
+                LOG_F(INFO, "THRM%d: Thermal interrupt %s",
+                      ref_spr == SPR::THRM1 ? 1 : 2,
+                      (val & THRM_TIE) ? "enabled" : "disabled");
+            }
+            if (changed & THRM_V) {
+                LOG_F(INFO, "THRM%d: Thermal monitoring %s",
+                      ref_spr == SPR::THRM1 ? 1 : 2,
+                      (val & THRM_V) ? "valid/enabled" : "disabled");
+            }
+        }
+        break;
+    case SPR::THRM3:
+        // Thermal Management Register 3 (controls THRM1/2)
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val;
+            
+            if ((val & THRM3_E) != (old_val & THRM3_E)) {
+                LOG_F(INFO, "THRM3: Thermal management %s",
+                      (val & THRM3_E) ? "globally enabled" : "globally disabled");
+            }
+        }
         break;
     case SPR::DSISR:
     case SPR::DAR:

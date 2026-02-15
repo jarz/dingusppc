@@ -121,8 +121,31 @@ enum SPR : int {
     HID0    = 1008,
     HID1    = 1009,
     IABR    = 1010, // Instruction Address Breakpoint Register
+    ICTC    = 1011, // Instruction Cache Throttling Control (G4)
+    THRM1   = 1012, // Thermal Management Register 1 (G3/G4)
     DABR    = 1013, // Data Address Breakpoint Register
+    MSSCR0  = 1014, // Memory Subsystem Control Register (G4)
+    THRM2   = 1021, // Thermal Management Register 2 (G3/G4)
+    THRM3   = 1022, // Thermal Management Register 3 (G3/G4)
     PIR     = 1023, // Processor Identification Register
+    // G4 (MPC7450) additional BAT registers
+    IBAT4U  = 560,  // Instruction BAT 4 Upper
+    IBAT4L  = 561,  // Instruction BAT 4 Lower
+    IBAT5U  = 562,  // Instruction BAT 5 Upper
+    IBAT5L  = 563,  // Instruction BAT 5 Lower
+    IBAT6U  = 564,  // Instruction BAT 6 Upper
+    IBAT6L  = 565,  // Instruction BAT 6 Lower
+    IBAT7U  = 566,  // Instruction BAT 7 Upper
+    IBAT7L  = 567,  // Instruction BAT 7 Lower
+    DBAT4U  = 568,  // Data BAT 4 Upper
+    DBAT4L  = 569,  // Data BAT 4 Lower
+    DBAT5U  = 570,  // Data BAT 5 Upper
+    DBAT5L  = 571,  // Data BAT 5 Lower
+    DBAT6U  = 572,  // Data BAT 6 Upper
+    DBAT6L  = 573,  // Data BAT 6 Lower
+    DBAT7U  = 574,  // Data BAT 7 Upper
+    DBAT7L  = 575,  // Data BAT 7 Lower
+    L2CR    = 1017, // L2 Cache Control Register (G3/G4)
 };
 
 /** HID0 (Hardware Implementation Dependent 0) bit definitions */
@@ -179,6 +202,38 @@ enum DABR_Bits : uint32_t {
 enum IABR_Bits : uint32_t {
     IABR_BE     = 1U << 0,   // Breakpoint Enable (bit 31 in some docs)
     IABR_TE     = 1U << 1,   // Translation Enable
+};
+
+/** L2CR (L2 Cache Control Register) bit definitions for G3/G4 */
+enum L2CR_Bits : uint32_t {
+    L2CR_L2E    = 1U << 31,  // L2 Enable
+    L2CR_L2PE   = 1U << 30,  // L2 Parity Enable
+    L2CR_L2SIZ  = 0x3 << 28, // L2 Size (00=256KB, 01=512KB, 10=1MB)
+    L2CR_L2CLK  = 0x7 << 25, // L2 Clock Ratio
+    L2CR_L2RAM  = 0x3 << 23, // L2 RAM Type
+    L2CR_L2DO   = 1U << 22,  // L2 Data Only
+    L2CR_L2I    = 1U << 21,  // L2 Global Invalidate
+    L2CR_L2CTL  = 1U << 20,  // L2 Control (reserved on some processors)
+    L2CR_L2WT   = 1U << 19,  // L2 Write-Through
+    L2CR_L2TS   = 1U << 18,  // L2 Test Support
+    L2CR_L2OH   = 0x3 << 16, // L2 Output Hold
+    L2CR_L2SL   = 1U << 15,  // L2 DLL Slow
+    L2CR_L2DF   = 1U << 14,  // L2 Differential Clock
+    L2CR_L2BYP  = 1U << 13,  // L2 Bypass
+    L2CR_L2IP   = 1U << 0,   // L2 Invalidate in Progress (read-only status)
+};
+
+/** THRM (Thermal Management) bit definitions for G3/G4 */
+enum THRM_Bits : uint32_t {
+    THRM_TIN    = 1U << 31,  // Thermal Interrupt
+    THRM_TIV    = 1U << 30,  // Thermal Interrupt Valid
+    THRM_THRESHOLD = 0x7F << 23, // Thermal threshold value (7 bits)
+    THRM_TID    = 1U << 2,   // Thermal Interrupt Direction
+    THRM_TIE    = 1U << 1,   // Thermal Interrupt Enable
+    THRM_V      = 1U << 0,   // Valid bit
+    // THRM3-specific
+    THRM3_E     = 1U << 0,   // Enable thermal management
+    THRM3_SITV  = 0x3FFF << 1, // Sample Interval Timer Value
 };
 
 /** symbolic names for common PPC processors */
