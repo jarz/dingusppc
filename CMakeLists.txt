@@ -138,6 +138,8 @@ if (APPLE)
 endif()
 
 file(GLOB TEST_SOURCES "${PROJECT_SOURCE_DIR}/cpu/ppc/test/*.cpp")
+# Exclude standalone test files that have their own main()
+list(FILTER TEST_SOURCES EXCLUDE REGEX ".*_standalone\\.cpp$")
 
 add_executable(dingusppc ${SOURCES} $<TARGET_OBJECTS:core>
                                     $<TARGET_OBJECTS:cpu_ppc>
@@ -198,6 +200,186 @@ if (DPPC_BUILD_PPC_TESTS)
 
     enable_testing()
     add_test(NAME testppc COMMAND testppc WORKING_DIRECTORY $<TARGET_FILE_DIR:testppc>)
+    
+    # Add standalone SPR test
+    add_executable(test_spr ${PROJECT_SOURCE_DIR}/cpu/ppc/test/test_spr_standalone.cpp
+                            $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+    
+    if (WIN32)
+        target_link_libraries(test_spr PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(test_spr PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(test_spr PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+    
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(test_spr PRIVATE capstone)
+    endif()
+    
+    add_test(NAME test_spr COMMAND test_spr WORKING_DIRECTORY $<TARGET_FILE_DIR:test_spr>)
+    
+    # Add extended SPR validation test
+    add_executable(test_spr_extended ${PROJECT_SOURCE_DIR}/cpu/ppc/test/test_spr_extended_standalone.cpp
+                            $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+    
+    target_compile_definitions(test_spr_extended PRIVATE PPC_TESTS)
+    
+    if (WIN32)
+        target_link_libraries(test_spr_extended PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(test_spr_extended PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(test_spr_extended PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+    
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(test_spr_extended PRIVATE capstone)
+    endif()
+    
+    add_test(NAME test_spr_extended COMMAND test_spr_extended WORKING_DIRECTORY $<TARGET_FILE_DIR:test_spr_extended>)
+    
+    # Add Phase 3 SPR test
+    add_executable(test_spr_phase3 ${PROJECT_SOURCE_DIR}/cpu/ppc/test/test_spr_phase3_standalone.cpp
+                            $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+    
+    target_compile_definitions(test_spr_phase3 PRIVATE PPC_TESTS)
+    
+    if (WIN32)
+        target_link_libraries(test_spr_phase3 PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(test_spr_phase3 PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(test_spr_phase3 PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+    
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(test_spr_phase3 PRIVATE capstone)
+    endif()
+    
+    add_test(NAME test_spr_phase3 COMMAND test_spr_phase3 WORKING_DIRECTORY $<TARGET_FILE_DIR:test_spr_phase3>)
+    
+    # Add performance counter test
+    add_executable(test_perfcounter ${PROJECT_SOURCE_DIR}/cpu/ppc/test/test_perfcounter_standalone.cpp
+                            $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+    
+    target_compile_definitions(test_perfcounter PRIVATE PPC_TESTS)
+    
+    if (WIN32)
+        target_link_libraries(test_perfcounter PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(test_perfcounter PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(test_perfcounter PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+    
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(test_perfcounter PRIVATE capstone)
+    endif()
+    
+    add_test(NAME test_perfcounter COMMAND test_perfcounter WORKING_DIRECTORY $<TARGET_FILE_DIR:test_perfcounter>)
+    
+    # Add IABR execution test
+    add_executable(test_iabr_execution ${PROJECT_SOURCE_DIR}/cpu/ppc/test/test_iabr_execution.cpp
+                            $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+    
+    target_compile_definitions(test_iabr_execution PRIVATE PPC_TESTS)
+    
+    if (WIN32)
+        target_link_libraries(test_iabr_execution PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(test_iabr_execution PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(test_iabr_execution PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+    
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(test_iabr_execution PRIVATE capstone)
+    endif()
+    
+    add_test(NAME test_iabr_execution COMMAND test_iabr_execution WORKING_DIRECTORY $<TARGET_FILE_DIR:test_iabr_execution>)
+    
+    # Add DABR execution test
+    add_executable(test_dabr_execution ${PROJECT_SOURCE_DIR}/cpu/ppc/test/test_dabr_execution.cpp
+                            $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+    
+    target_compile_definitions(test_dabr_execution PRIVATE PPC_TESTS)
+    
+    if (WIN32)
+        target_link_libraries(test_dabr_execution PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(test_dabr_execution PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(test_dabr_execution PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+    
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(test_dabr_execution PRIVATE capstone)
+    endif()
+    
+    add_test(NAME test_dabr_execution COMMAND test_dabr_execution WORKING_DIRECTORY $<TARGET_FILE_DIR:test_dabr_execution>)
+    
+    # Add PMC1 execution test
+    add_executable(test_pmc1_execution ${PROJECT_SOURCE_DIR}/cpu/ppc/test/test_pmc1_execution.cpp
+                            $<TARGET_OBJECTS:core>
+                            $<TARGET_OBJECTS:cpu_ppc>
+                            $<TARGET_OBJECTS:debugger>
+                            $<TARGET_OBJECTS:devices>
+                            $<TARGET_OBJECTS:machines>
+                            $<TARGET_OBJECTS:utils>
+                            $<TARGET_OBJECTS:loguru>)
+    
+    target_compile_definitions(test_pmc1_execution PRIVATE PPC_TESTS)
+    
+    if (WIN32)
+        target_link_libraries(test_pmc1_execution PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(test_pmc1_execution PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(test_pmc1_execution PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+    
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(test_pmc1_execution PRIVATE capstone)
+    endif()
+    
+    add_test(NAME test_pmc1_execution COMMAND test_pmc1_execution WORKING_DIRECTORY $<TARGET_FILE_DIR:test_pmc1_execution>)
 endif()
 
 if (DPPC_BUILD_BENCHMARKS)

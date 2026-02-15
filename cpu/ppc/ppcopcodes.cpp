@@ -950,15 +950,69 @@ static void update_decrementer(bool update_time_stamp, uint32_t oldval, uint32_t
     );
 }
 
+// Helper function to check if an SPR number is architecturally valid
+// Returns true for valid SPR numbers, false for truly invalid ones
+static inline bool is_valid_spr(uint32_t spr_num) {
+    // PowerPC architecture defines SPR space as 0-1023 (10 bits)
+    // Our spr array is ppc_state.spr[1024], so anything >= 1024 is invalid
+    if (spr_num >= 1024) {
+        return false;
+    }
+    
+    // For now, we'll be conservative and only allow known SPR ranges
+    // to avoid out-of-bounds access to unimplemented regions
+    
+    // User and supervisor SPRs: 0-31
+    if (spr_num <= 31) {
+        return true;
+    }
+    
+    // Timebase and control registers: 256-287
+    if (spr_num >= 256 && spr_num <= 287) {
+        return true;
+    }
+    
+    // BAT registers: 528-543 (IBAT0-3, DBAT0-3)
+    if (spr_num >= 528 && spr_num <= 543) {
+        return true;
+    }
+    
+    // G4 additional BAT registers: 560-575 (IBAT4-7, DBAT4-7)
+    if (spr_num >= 560 && spr_num <= 575) {
+        return true;
+    }
+    
+    // Performance monitoring: 952-959
+    if (spr_num >= 952 && spr_num <= 959) {
+        return true;
+    }
+    
+    // Implementation-specific (HID, IABR, DABR, PIR, L2CR, ICTC, MSSCR0, THRM): 1008-1023
+    if (spr_num >= 1008 && spr_num <= 1023) {
+        return true;
+    }
+    
+    // Any other SPR number is considered invalid for now
+    // This can be expanded as we implement more SPRs
+    return false;
+}
+
 void dppc_interpreter::ppc_mfspr(uint32_t opcode) {
     ppc_grab_dab(opcode);
     uint32_t ref_spr = (reg_b << 5) | reg_a;
 
-    if (ref_spr & 0x10) {
+    // Enhanced privilege checking
+    // SPRs 0-15: User-accessible
+    // SPRs 16-1023: Supervisor-accessible
+    // SPRs 1024-2047: Supervisor/Hypervisor-accessible (implementation-dependent)
+    bool is_supervisor_spr = (ref_spr >= 16 && ref_spr < 1024) || (ref_spr >= 1024);
+    
+    if (is_supervisor_spr) {
 #ifdef CPU_PROFILING
         num_supervisor_instrs++;
 #endif
         if (ppc_state.msr & MSR::PR) {
+            // Problem state (user mode) - not allowed to access supervisor SPRs
             ppc_exception_handler(Except_Type::EXC_PROGRAM, Exc_Cause::NOT_ALLOWED);
             return;
         }
@@ -1018,8 +1072,97 @@ void dppc_interpreter::ppc_mfspr(uint32_t opcode) {
         ppc_state.spr[TBL_S] = uint32_t(tbr_value);
         break;
     }
+    case SPR::DSISR:
+    case SPR::DAR:
+    case SPR::SRR0:
+    case SPR::SRR1:
+        // Exception handling registers - can be read by software
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::SPRG0:
+    case SPR::SPRG1:
+    case SPR::SPRG2:
+    case SPR::SPRG3:
+        // General purpose storage registers
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::HID0:
+    case SPR::HID1:
+        // Hardware implementation-dependent registers
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::MMCR0:
+    case SPR::MMCR1:
+    case SPR::PMC1:
+    case SPR::PMC2:
+    case SPR::PMC3:
+    case SPR::PMC4:
+    case SPR::SIA:
+    case SPR::SDA:
+        // Performance monitoring registers
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::EAR:
+        // External Access Register
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::PIR:
+        // Processor Identification Register - read-only
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::IABR:
+        // Instruction Address Breakpoint Register
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::DABR:
+        // Data Address Breakpoint Register
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    // G4 additional BAT registers
+    case SPR::IBAT4U:
+    case SPR::IBAT4L:
+    case SPR::IBAT5U:
+    case SPR::IBAT5L:
+    case SPR::IBAT6U:
+    case SPR::IBAT6L:
+    case SPR::IBAT7U:
+    case SPR::IBAT7L:
+    case SPR::DBAT4U:
+    case SPR::DBAT4L:
+    case SPR::DBAT5U:
+    case SPR::DBAT5L:
+    case SPR::DBAT6U:
+    case SPR::DBAT6L:
+    case SPR::DBAT7U:
+    case SPR::DBAT7L:
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::L2CR:
+        // L2 Cache Control Register
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::ICTC:
+        // Instruction Cache Throttling Control
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::MSSCR0:
+        // Memory Subsystem Control Register
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::THRM1:
+    case SPR::THRM2:
+    case SPR::THRM3:
+        // Thermal Management Registers
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
     default:
-        // FIXME: Unknown SPR should be noop or illegal instruction.
+        // Check if this is a valid but unimplemented SPR
+        if (!is_valid_spr(ref_spr)) {
+            LOG_F(WARNING, "mfspr: Access to invalid SPR %d", ref_spr);
+            ppc_exception_handler(Except_Type::EXC_PROGRAM, Exc_Cause::ILLEGAL_OP);
+            return;
+        }
+        // Valid but unimplemented SPR - use array access
         ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
     }
 }
@@ -1028,11 +1171,18 @@ void dppc_interpreter::ppc_mtspr(uint32_t opcode) {
     ppc_grab_dab(opcode);
     uint32_t ref_spr = (reg_b << 5) | reg_a;
 
-    if (ref_spr & 0x10) {
+    // Enhanced privilege checking
+    // SPRs 0-15: User-accessible
+    // SPRs 16-1023: Supervisor-accessible
+    // SPRs 1024-2047: Supervisor/Hypervisor-accessible (implementation-dependent)
+    bool is_supervisor_spr = (ref_spr >= 16 && ref_spr < 1024) || (ref_spr >= 1024);
+    
+    if (is_supervisor_spr) {
 #ifdef CPU_PROFILING
         num_supervisor_instrs++;
 #endif
         if (ppc_state.msr & MSR::PR) {
+            // Problem state (user mode) - not allowed to access supervisor SPRs
             ppc_exception_handler(Except_Type::EXC_PROGRAM, Exc_Cause::NOT_ALLOWED);
             return;
         }
@@ -1113,8 +1263,236 @@ void dppc_interpreter::ppc_mtspr(uint32_t opcode) {
         ppc_state.spr[ref_spr] = val;
         dbat_update(ref_spr);
         break;
+    // G4 additional BAT registers (IBAT4-7, DBAT4-7)
+    case SPR::IBAT4U:
+    case SPR::IBAT4L:
+    case SPR::IBAT5U:
+    case SPR::IBAT5L:
+    case SPR::IBAT6U:
+    case SPR::IBAT6L:
+    case SPR::IBAT7U:
+    case SPR::IBAT7L:
+        ppc_state.spr[ref_spr] = val;
+        ibat_update(ref_spr);
+        LOG_F(9, "IBAT%d%c set to 0x%08X", 
+              (ref_spr - SPR::IBAT4U) / 2 + 4, 
+              (ref_spr & 1) ? 'L' : 'U', val);
+        break;
+    case SPR::DBAT4U:
+    case SPR::DBAT4L:
+    case SPR::DBAT5U:
+    case SPR::DBAT5L:
+    case SPR::DBAT6U:
+    case SPR::DBAT6L:
+    case SPR::DBAT7U:
+    case SPR::DBAT7L:
+        ppc_state.spr[ref_spr] = val;
+        dbat_update(ref_spr);
+        LOG_F(9, "DBAT%d%c set to 0x%08X",
+              (ref_spr - SPR::DBAT4U) / 2 + 4,
+              (ref_spr & 1) ? 'L' : 'U', val);
+        break;
+    case SPR::L2CR:
+        // L2 Cache Control Register
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val;
+            uint32_t changed = val ^ old_val;
+            
+            if (changed & L2CR_L2E) {
+                LOG_F(INFO, "L2CR: L2 cache %s", (val & L2CR_L2E) ? "enabled" : "disabled");
+            }
+            if (changed & L2CR_L2I) {
+                LOG_F(INFO, "L2CR: L2 cache global invalidate");
+            }
+            if (changed & L2CR_L2WT) {
+                LOG_F(INFO, "L2CR: L2 write-through %s", (val & L2CR_L2WT) ? "enabled" : "disabled");
+            }
+        }
+        break;
+    case SPR::ICTC:
+        // Instruction Cache Throttling Control
+        ppc_state.spr[ref_spr] = val;
+        LOG_F(9, "ICTC: Instruction cache throttling count set to %d", val & 0x1FF);
+        break;
+    case SPR::MSSCR0:
+        // Memory Subsystem Control Register
+        ppc_state.spr[ref_spr] = val;
+        LOG_F(9, "MSSCR0: Memory subsystem control set to 0x%08X", val);
+        break;
+    case SPR::THRM1:
+    case SPR::THRM2:
+        // Thermal Management Registers 1 & 2
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val;
+            uint32_t changed = val ^ old_val;
+            
+            if (changed & THRM_TIE) {
+                LOG_F(INFO, "THRM%d: Thermal interrupt %s",
+                      ref_spr == SPR::THRM1 ? 1 : 2,
+                      (val & THRM_TIE) ? "enabled" : "disabled");
+            }
+            if (changed & THRM_V) {
+                LOG_F(INFO, "THRM%d: Thermal monitoring %s",
+                      ref_spr == SPR::THRM1 ? 1 : 2,
+                      (val & THRM_V) ? "valid/enabled" : "disabled");
+            }
+        }
+        break;
+    case SPR::THRM3:
+        // Thermal Management Register 3 (controls THRM1/2)
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val;
+            
+            if ((val & THRM3_E) != (old_val & THRM3_E)) {
+                LOG_F(INFO, "THRM3: Thermal management %s",
+                      (val & THRM3_E) ? "globally enabled" : "globally disabled");
+            }
+        }
+        break;
+    case SPR::DSISR:
+    case SPR::DAR:
+    case SPR::SRR0:
+    case SPR::SRR1:
+        // Exception handling registers - can be written by software
+        ppc_state.spr[ref_spr] = val;
+        break;
+    case SPR::SPRG0:
+    case SPR::SPRG1:
+    case SPR::SPRG2:
+    case SPR::SPRG3:
+        // General purpose storage registers
+        ppc_state.spr[ref_spr] = val;
+        break;
+    case SPR::HID0:
+    case SPR::HID1:
+        // Hardware implementation-dependent registers
+        // Log significant changes (cache enable/disable, power management)
+        if (ref_spr == SPR::HID0) {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            uint32_t changed = val ^ old_val;
+            
+            if (changed & HID0_ICE) {
+                LOG_F(INFO, "HID0: Instruction cache %s", 
+                      (val & HID0_ICE) ? "enabled" : "disabled");
+            }
+            if (changed & HID0_DCE) {
+                LOG_F(INFO, "HID0: Data cache %s", 
+                      (val & HID0_DCE) ? "enabled" : "disabled");
+            }
+            if (changed & HID0_ICFI) {
+                LOG_F(INFO, "HID0: Instruction cache flash invalidate");
+            }
+            if (changed & HID0_DCFI) {
+                LOG_F(INFO, "HID0: Data cache flash invalidate");
+            }
+            if (changed & (HID0_DOZE | HID0_NAP | HID0_SLEEP)) {
+                LOG_F(INFO, "HID0: Power management mode changed (DOZE:%d NAP:%d SLEEP:%d)",
+                      !!(val & HID0_DOZE), !!(val & HID0_NAP), !!(val & HID0_SLEEP));
+            }
+            if (changed & HID0_DPM) {
+                LOG_F(INFO, "HID0: Dynamic power management %s",
+                      (val & HID0_DPM) ? "enabled" : "disabled");
+            }
+        }
+        ppc_state.spr[ref_spr] = val;
+        break;
+    case SPR::MMCR0:
+    case SPR::MMCR1:
+        // Performance monitoring control registers
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val;
+            
+            if (ref_spr == SPR::MMCR0) {
+                uint32_t changed = val ^ old_val;
+                if (changed & MMCR0_FC) {
+                    LOG_F(INFO, "MMCR0: Counters %s", 
+                          (val & MMCR0_FC) ? "frozen" : "running");
+                }
+                if (changed & MMCR0_PMXE) {
+                    LOG_F(INFO, "MMCR0: Performance monitor exceptions %s",
+                          (val & MMCR0_PMXE) ? "enabled" : "disabled");
+                }
+                if ((val & (MMCR0_FCS | MMCR0_FCP)) != (old_val & (MMCR0_FCS | MMCR0_FCP))) {
+                    LOG_F(INFO, "MMCR0: Freeze control - Supervisor:%d Problem:%d",
+                          !!(val & MMCR0_FCS), !!(val & MMCR0_FCP));
+                }
+            }
+        }
+        break;
+    case SPR::PMC1:
+    case SPR::PMC2:
+    case SPR::PMC3:
+    case SPR::PMC4:
+        // Performance monitoring counters - can be written to set/clear
+        ppc_state.spr[ref_spr] = val;
+        LOG_F(9, "PMC%d set to 0x%08X", ref_spr - SPR::PMC1 + 1, val);
+        break;
+    case SPR::SIA:
+    case SPR::SDA:
+        // Sampled instruction/data address registers
+        ppc_state.spr[ref_spr] = val;
+        break;
+    case SPR::EAR:
+        // External Access Register
+        ppc_state.spr[ref_spr] = val;
+        break;
+    case SPR::PIR:
+        // Processor Identification Register - typically read-only, ignore writes
+        LOG_F(9, "mtspr: Ignoring write to read-only PIR register");
+        break;
+    case SPR::IABR:
+        // Instruction Address Breakpoint Register
+        // Store the address, masking out the low bits (word-aligned)
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val & ~0x3UL;
+            
+            // Log when breakpoint is enabled/disabled or address changes
+            if ((val & ~0x3UL) != (old_val & ~0x3UL)) {
+                if (val & ~0x3UL) {
+                    LOG_F(INFO, "IABR: Instruction breakpoint set at 0x%08X", (unsigned int)(val & ~0x3UL));
+                } else {
+                    LOG_F(INFO, "IABR: Instruction breakpoint cleared");
+                }
+            }
+        }
+        break;
+    case SPR::DABR:
+        // Data Address Breakpoint Register
+        // Store the address and control bits (bits 0-2: BT, DW, DR)
+        {
+            uint32_t old_val = ppc_state.spr[ref_spr];
+            ppc_state.spr[ref_spr] = val;
+            
+            // Log when breakpoint is enabled/disabled or configuration changes
+            uint32_t addr = val & ~0x7UL;
+            bool read_enable = val & DABR_DR;
+            bool write_enable = val & DABR_DW;
+            bool trans_enable = val & DABR_BT;
+            
+            if ((addr != (old_val & ~0x7UL)) || 
+                ((val & 0x7) != (old_val & 0x7))) {
+                if (read_enable || write_enable) {
+                    LOG_F(INFO, "DABR: Data breakpoint at 0x%08X (Read:%d Write:%d Trans:%d)",
+                          addr, read_enable, write_enable, trans_enable);
+                } else {
+                    LOG_F(INFO, "DABR: Data breakpoint cleared");
+                }
+            }
+        }
+        break;
     default:
-        // FIXME: Unknown SPR should be noop or illegal instruction.
+        // Check if this is a valid but unimplemented SPR
+        if (!is_valid_spr(ref_spr)) {
+            LOG_F(WARNING, "mtspr: Access to invalid SPR %d", ref_spr);
+            ppc_exception_handler(Except_Type::EXC_PROGRAM, Exc_Cause::ILLEGAL_OP);
+            return;
+        }
+        // Valid but unimplemented SPR - use array access
         ppc_state.spr[ref_spr] = val;
     }
 }
