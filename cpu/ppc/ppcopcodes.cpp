@@ -1018,6 +1018,31 @@ void dppc_interpreter::ppc_mfspr(uint32_t opcode) {
         ppc_state.spr[TBL_S] = uint32_t(tbr_value);
         break;
     }
+    case SPR::LR:
+    case SPR::CTR:
+    case SPR::XER:
+    case SPR::DSISR:
+    case SPR::DAR:
+    case SPR::SDR1:
+    case SPR::SRR0:
+    case SPR::SRR1:
+    case SPR::SPRG0:
+    case SPR::SPRG1:
+    case SPR::SPRG2:
+    case SPR::SPRG3:
+    case SPR::PVR:
+    case SPR::MMCR0:
+    case SPR::PMC1:
+    case SPR::PMC2:
+    case SPR::SIA:
+    case SPR::MMCR1:
+    case SPR::PMC3:
+    case SPR::PMC4:
+    case SPR::SDA:
+    case SPR::HID0:
+    case SPR::HID1:
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
     default:
         // FIXME: Unknown SPR should be noop or illegal instruction.
         ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
@@ -1090,6 +1115,28 @@ void dppc_interpreter::ppc_mtspr(uint32_t opcode) {
         ppc_state.spr[TBU_S] = val;
         break;
     case SPR::PVR:
+        break;
+    case SPR::LR:
+    case SPR::CTR:
+    case SPR::DSISR:
+    case SPR::DAR:
+    case SPR::SRR0:
+    case SPR::SRR1:
+    case SPR::SPRG0:
+    case SPR::SPRG1:
+    case SPR::SPRG2:
+    case SPR::SPRG3:
+    case SPR::MMCR0:
+    case SPR::PMC1:
+    case SPR::PMC2:
+    case SPR::SIA:
+    case SPR::MMCR1:
+    case SPR::PMC3:
+    case SPR::PMC4:
+    case SPR::SDA:
+    case SPR::HID0:
+    case SPR::HID1:
+        ppc_state.spr[ref_spr] = val;
         break;
     case 528:
     case 529:
