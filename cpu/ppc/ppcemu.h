@@ -106,6 +106,7 @@ enum SPR : int {
     SPRG1   = 273,
     SPRG2   = 274,
     SPRG3   = 275,
+    EAR     = 282, // External Access Register
     TBL_S   = 284, // supervisor TBL
     TBU_S   = 285, // supervisor TBU
     PVR     = 287,
@@ -119,6 +120,9 @@ enum SPR : int {
     SDA     = 959,
     HID0    = 1008,
     HID1    = 1009,
+    IABR    = 1010, // Instruction Address Breakpoint Register
+    DABR    = 1013, // Data Address Breakpoint Register
+    PIR     = 1023, // Processor Identification Register
 };
 
 /** symbolic names for common PPC processors */

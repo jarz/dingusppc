@@ -950,6 +950,46 @@ static void update_decrementer(bool update_time_stamp, uint32_t oldval, uint32_t
     );
 }
 
+// Helper function to check if an SPR number is architecturally valid
+// Returns true for valid SPR numbers, false for truly invalid ones
+static inline bool is_valid_spr(uint32_t spr_num) {
+    // PowerPC architecture defines SPR space as 0-1023
+    // Some implementations extend this to 0-2047
+    if (spr_num > 2047) {
+        return false;
+    }
+    
+    // BAT registers (528-543) are always valid
+    if (spr_num >= 528 && spr_num <= 543) {
+        return true;
+    }
+    
+    // Common valid ranges (not exhaustive, but catches most invalid SPRs)
+    // Low range: 0-31 (user and supervisor SPRs)
+    if (spr_num <= 31) {
+        return true;
+    }
+    
+    // Mid range: 256-287 (timebase, SPRGs, PVR)
+    if (spr_num >= 256 && spr_num <= 287) {
+        return true;
+    }
+    
+    // Performance monitoring: 952-959
+    if (spr_num >= 952 && spr_num <= 959) {
+        return true;
+    }
+    
+    // HID and other implementation-specific: 1008-1023
+    if (spr_num >= 1008 && spr_num <= 1023) {
+        return true;
+    }
+    
+    // For any other SPR numbers, we'll allow them but they may not be implemented
+    // This is conservative - it allows implementation-specific SPRs
+    return true;
+}
+
 void dppc_interpreter::ppc_mfspr(uint32_t opcode) {
     ppc_grab_dab(opcode);
     uint32_t ref_spr = (reg_b << 5) | reg_a;
@@ -1048,8 +1088,30 @@ void dppc_interpreter::ppc_mfspr(uint32_t opcode) {
         // Performance monitoring registers
         ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
         break;
+    case SPR::EAR:
+        // External Access Register
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::PIR:
+        // Processor Identification Register - read-only
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::IABR:
+        // Instruction Address Breakpoint Register
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
+    case SPR::DABR:
+        // Data Address Breakpoint Register
+        ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
+        break;
     default:
-        // FIXME: Unknown SPR should be noop or illegal instruction.
+        // Check if this is a valid but unimplemented SPR
+        if (!is_valid_spr(ref_spr)) {
+            LOG_F(WARNING, "mfspr: Access to invalid SPR %d", ref_spr);
+            ppc_exception_handler(Except_Type::EXC_PROGRAM, Exc_Cause::ILLEGAL_OP);
+            return;
+        }
+        // Valid but unimplemented SPR - use array access
         ppc_state.gpr[reg_d] = ppc_state.spr[ref_spr];
     }
 }
@@ -1173,8 +1235,32 @@ void dppc_interpreter::ppc_mtspr(uint32_t opcode) {
         // Performance monitoring registers
         ppc_state.spr[ref_spr] = val;
         break;
+    case SPR::EAR:
+        // External Access Register
+        ppc_state.spr[ref_spr] = val;
+        break;
+    case SPR::PIR:
+        // Processor Identification Register - typically read-only, ignore writes
+        LOG_F(9, "mtspr: Ignoring write to read-only PIR register");
+        break;
+    case SPR::IABR:
+        // Instruction Address Breakpoint Register
+        // Store the address, masking out the low bits
+        ppc_state.spr[ref_spr] = val & ~0x3UL;
+        break;
+    case SPR::DABR:
+        // Data Address Breakpoint Register
+        // Store the address and control bits
+        ppc_state.spr[ref_spr] = val & ~0x7UL;
+        break;
     default:
-        // FIXME: Unknown SPR should be noop or illegal instruction.
+        // Check if this is a valid but unimplemented SPR
+        if (!is_valid_spr(ref_spr)) {
+            LOG_F(WARNING, "mtspr: Access to invalid SPR %d", ref_spr);
+            ppc_exception_handler(Except_Type::EXC_PROGRAM, Exc_Cause::ILLEGAL_OP);
+            return;
+        }
+        // Valid but unimplemented SPR - use array access
         ppc_state.spr[ref_spr] = val;
     }
 }

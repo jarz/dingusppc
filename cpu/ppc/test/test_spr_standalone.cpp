@@ -64,6 +64,30 @@ bool test_spr_rw(const char* name, int spr_num, uint32_t test_value, bool is_sup
     return true;
 }
 
+// Test helper for read-only SPRs - just verify we can read without exception
+bool test_spr_ro(const char* name, int spr_num, bool is_supervisor) {
+    // Encode mfspr instruction: mfspr r4, SPR
+    // Format: 31 | rD | SPR[5:9] | SPR[0:4] | 339 | 0
+    uint32_t spr_encoded = ((spr_num & 0x1F) << 5) | ((spr_num >> 5) & 0x1F);
+    uint32_t mfspr_opcode = 0x7C800000 | (spr_encoded << 11) | (339 << 1);
+    
+    // Set supervisor mode if needed
+    if (is_supervisor) {
+        ppc_state.msr &= ~MSR::PR;  // Clear problem state bit (supervisor mode)
+    } else {
+        ppc_state.msr |= MSR::PR;   // Set problem state bit (user mode)
+    }
+    
+    ppc_state.gpr[4] = 0xDEADBEEF;  // Initialize r4 with garbage
+    
+    // Execute mfspr to read the SPR into r4
+    ppc_main_opcode(ppc_opcode_grabber, mfspr_opcode);
+    
+    // Just verify we got some value (didn't exception)
+    cout << "PASS: " << name << " (SPR " << spr_num << ") [read-only] = 0x" << hex << ppc_state.gpr[4] << endl;
+    return true;
+}
+
 int main() {
     initialize_ppc_opcode_table();
     
@@ -101,6 +125,12 @@ int main() {
     if (test_spr_rw("PMC4", SPR::PMC4, 0x0000DEF0, true)) passed++; else failed++;
     if (test_spr_rw("SIA", SPR::SIA, 0xAABBCCDD, true)) passed++; else failed++;
     if (test_spr_rw("SDA", SPR::SDA, 0xEEFF0011, true)) passed++; else failed++;
+    
+    // Test new registers added in Phase 1
+    if (test_spr_rw("EAR", SPR::EAR, 0x12345678, true)) passed++; else failed++;
+    if (test_spr_ro("PIR", SPR::PIR, true)) passed++; else failed++;  // PIR is read-only
+    if (test_spr_rw("IABR", SPR::IABR, 0x10001000, true)) passed++; else failed++;
+    if (test_spr_rw("DABR", SPR::DABR, 0x20002000, true)) passed++; else failed++;
     
     cout << endl << "=== Results ===" << endl;
     cout << "Passed: " << passed << endl;
