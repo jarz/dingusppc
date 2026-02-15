@@ -1323,7 +1323,7 @@ void dppc_interpreter::ppc_mtspr(uint32_t opcode) {
             // Log when breakpoint is enabled/disabled or address changes
             if ((val & ~0x3UL) != (old_val & ~0x3UL)) {
                 if (val & ~0x3UL) {
-                    LOG_F(INFO, "IABR: Instruction breakpoint set at 0x%08X", val & ~0x3UL);
+                    LOG_F(INFO, "IABR: Instruction breakpoint set at 0x%08X", (unsigned int)(val & ~0x3UL));
                 } else {
                     LOG_F(INFO, "IABR: Instruction breakpoint cleared");
                 }

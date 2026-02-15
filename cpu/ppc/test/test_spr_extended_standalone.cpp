@@ -144,7 +144,7 @@ int main() {
     initialize_ppc_opcode_table();
     
     // Set MSR to allow testing (machine check enabled)
-    int initial_msr = MSR::ME | MSR::IP;
+    uint32_t initial_msr = MSR::ME | MSR::IP;
     ppc_msr_did_change(ppc_state.msr, initial_msr, false);
     
     cout << "Running extended SPR validation tests..." << endl << endl;
