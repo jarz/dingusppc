@@ -1094,6 +1094,11 @@ inline T mmu_read_vmem(uint32_t opcode, uint32_t guest_va)
     dmem_reads_total++;
 #endif
 
+    // Check DABR (Data Address Breakpoint Register) for read breakpoint
+    if [[unlikely]] (check_dabr_match(guest_va, false)) {
+        ppc_exception_handler(Except_Type::EXC_TRACE, 0);
+    }
+
     // handle unaligned memory accesses
     if (sizeof(T) > 1 && (guest_va & (sizeof(T) - 1))) {
         return read_unaligned<T>(opcode, guest_va, host_va);
@@ -1110,6 +1115,40 @@ inline T mmu_read_vmem(uint32_t opcode, uint32_t guest_va)
         case 8:
             return READ_QWORD_BE_A(host_va);
     }
+}
+
+// Check if DABR (Data Address Breakpoint) should trigger
+// Returns true if breakpoint should fire
+static inline bool check_dabr_match(uint32_t addr, bool is_write) {
+    uint32_t dabr = ppc_state.spr[SPR::DABR];
+    
+    // Check if appropriate enable bit is set
+    bool read_enabled = dabr & DABR_DR;
+    bool write_enabled = dabr & DABR_DW;
+    
+    if (is_write && !write_enabled) {
+        return false;
+    }
+    if (!is_write && !read_enabled) {
+        return false;
+    }
+    
+    // Extract breakpoint address (mask out control bits)
+    uint32_t breakpoint_addr = dabr & ~0x7UL;
+    
+    // If breakpoint address is 0, DABR is disabled
+    if (breakpoint_addr == 0) {
+        return false;
+    }
+    
+    // Check if addresses match (low 3 bits masked for 8-byte granularity)
+    if ((addr & ~0x7UL) == breakpoint_addr) {
+        LOG_F(INFO, "DABR: Data breakpoint triggered at addr=0x%08X (%s)", 
+              addr, is_write ? "write" : "read");
+        return true;
+    }
+    
+    return false;
 }
 
 // explicitely instantiate all required mmu_read_vmem variants
@@ -1211,6 +1250,11 @@ inline void mmu_write_vmem(uint32_t opcode, uint32_t guest_va, T value)
 #ifdef MMU_PROFILING
     dmem_writes_total++;
 #endif
+
+    // Check DABR (Data Address Breakpoint Register) for write breakpoint
+    if [[unlikely]] (check_dabr_match(guest_va, true)) {
+        ppc_exception_handler(Except_Type::EXC_TRACE, 0);
+    }
 
     // handle unaligned memory accesses
     if (sizeof(T) > 1 && (guest_va & (sizeof(T) - 1))) {
