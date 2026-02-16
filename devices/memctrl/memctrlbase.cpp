@@ -23,6 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <devices/common/mmiodevice.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -102,6 +103,30 @@ AddressMapEntry* MemCtrlBase::find_range(uint32_t addr) {
         if (addr >= entry->start && addr <= entry->end)
             return entry;
     }
+
+#if defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+    // Fuzzing fallback: never abort on unmapped memory. Instead, hand out a
+    // small in-memory sandbox window and wrap accesses modulo its size.
+    // This prevents ABORT_F paths in the MMU for random addresses.
+    static thread_local AddressMapEntry fuzz_fallback = {};
+    static thread_local char log_once = 0;
+    // Use a power-of-two size for easy alignment/masking (64 KiB).
+    static thread_local std::array<uint8_t, 64 * 1024> fuzz_sandbox = {};
+    if (!log_once) {
+        LOG_F(1, "[fuzz] installing MemCtrl fallback sandbox (%zu bytes)",
+              fuzz_sandbox.size());
+        log_once = 1;
+    }
+    const uint32_t mask = static_cast<uint32_t>(fuzz_sandbox.size() - 1);
+    const uint32_t start = addr & ~mask; // window-aligned start
+    fuzz_fallback.start  = start;
+    fuzz_fallback.end    = start + mask;
+    fuzz_fallback.mirror = 0;
+    fuzz_fallback.type   = RT_RAM;
+    fuzz_fallback.devobj = nullptr;
+    fuzz_fallback.mem_ptr = reinterpret_cast<unsigned char*>(fuzz_sandbox.data());
+    return &fuzz_fallback;
+#endif
 
     return nullptr;
 }
