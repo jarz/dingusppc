@@ -202,26 +202,30 @@ endif()
 
 if (DPPC_BUILD_BENCHMARKS)
     add_compile_options("-DPPC_BENCHMARKS")
-    file(GLOB BENCH_SOURCES "${PROJECT_SOURCE_DIR}/benchmark/*.cpp"
-                            "${PROJECT_SOURCE_DIR}/cpu/ppc/*.cpp"
-                            "${PROJECT_SOURCE_DIR}/cpu/ppc/*.h"
-                            )
-    add_executable(bench1 ${BENCH_SOURCES} $<TARGET_OBJECTS:core>
-                                           # $<TARGET_OBJECTS:cpu_ppc>
-                                           $<TARGET_OBJECTS:debugger>
-                                           $<TARGET_OBJECTS:devices>
-                                           $<TARGET_OBJECTS:machines>
-                                           $<TARGET_OBJECTS:utils>
-                                           $<TARGET_OBJECTS:loguru>)
 
-    target_link_libraries(bench1 PRIVATE cubeb SDL2::SDL2 ${CMAKE_DL_LIBS}
+    # Gather CPU/PPC sources explicitly (benchmarks live under benchmark/)
+    # PPC_SOURCES is provided by cpu/ppc/CMakeLists.txt
+
+    add_executable(benchmarks "${PROJECT_SOURCE_DIR}/benchmark/bench_driver.cpp"
+                               "${PROJECT_SOURCE_DIR}/benchmark/bench_common.cpp"
+                               "${PROJECT_SOURCE_DIR}/benchmark/bench_checksum.cpp"
+                               "${PROJECT_SOURCE_DIR}/benchmark/bench_dispatch.cpp"
+                               ${PPC_SOURCES}
+                               $<TARGET_OBJECTS:core>
+                               $<TARGET_OBJECTS:debugger>
+                               $<TARGET_OBJECTS:devices>
+                               $<TARGET_OBJECTS:machines>
+                               $<TARGET_OBJECTS:utils>
+                               $<TARGET_OBJECTS:loguru>)
+
+    target_link_libraries(benchmarks PRIVATE cubeb SDL2::SDL2 ${CMAKE_DL_LIBS}
             ${CMAKE_THREAD_LIBS_INIT})
     if (WIN32)
-        target_compile_definitions(bench1 PRIVATE SDL_MAIN_HANDLED)
+        target_compile_definitions(benchmarks PRIVATE SDL_MAIN_HANDLED)
     endif()
 
     if (DPPC_68K_DEBUGGER)
-        target_link_libraries(bench1 PRIVATE capstone)
+        target_link_libraries(benchmarks PRIVATE capstone)
     endif()
 endif()
 
@@ -236,8 +240,7 @@ if (DPPC_BUILD_PPC_TESTS)
 endif()
 
 if (DPPC_BUILD_FUZZ)
-    file(GLOB FUZZ_PPC_SOURCES "${PROJECT_SOURCE_DIR}/cpu/ppc/*.cpp"
-                               "${PROJECT_SOURCE_DIR}/cpu/ppc/*.h")
+    # Using PPC_SOURCES from cpu/ppc/CMakeLists.txt to avoid duplicate globs
 
     set(FUZZ_COMMON_OBJECTS $<TARGET_OBJECTS:core>
                             $<TARGET_OBJECTS:debugger>
@@ -268,14 +271,14 @@ if (DPPC_BUILD_FUZZ)
     # 1) Single-instruction PPC fuzzer
     add_executable(fuzz_ppc_single_instruction
         "${PROJECT_SOURCE_DIR}/fuzz/fuzz_ppc_single_instruction.cpp"
-        ${FUZZ_PPC_SOURCES}
+        ${PPC_SOURCES}
         ${FUZZ_COMMON_OBJECTS})
     add_fuzz_target(fuzz_ppc_single_instruction)
 
     # 2) PPC disassembler fuzzer
     add_executable(fuzz_ppc_disasm
         "${PROJECT_SOURCE_DIR}/fuzz/fuzz_ppc_disasm.cpp"
-        ${FUZZ_PPC_SOURCES}
+        ${PPC_SOURCES}
         ${FUZZ_COMMON_OBJECTS})
     add_fuzz_target(fuzz_ppc_disasm)
 
@@ -283,14 +286,14 @@ if (DPPC_BUILD_FUZZ)
     add_executable(fuzz_mmio_device
         "${PROJECT_SOURCE_DIR}/fuzz/fuzz_mmio_device.cpp"
         "${PROJECT_SOURCE_DIR}/fuzz/fuzz_mmio_extras.cpp"
-        ${FUZZ_PPC_SOURCES}
+        ${PPC_SOURCES}
         ${FUZZ_COMMON_OBJECTS})
     add_fuzz_target(fuzz_mmio_device)
 
     # 4) PCI config space fuzzer
     add_executable(fuzz_pci_cfg
         "${PROJECT_SOURCE_DIR}/fuzz/fuzz_pci_cfg.cpp"
-        ${FUZZ_PPC_SOURCES}
+        ${PPC_SOURCES}
         ${FUZZ_COMMON_OBJECTS})
     add_fuzz_target(fuzz_pci_cfg)
 endif()
