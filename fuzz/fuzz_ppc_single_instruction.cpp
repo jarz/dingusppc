@@ -30,6 +30,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <devices/memctrl/memctrlbase.h>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 
 // Stub: absorb exceptions without crashing the fuzzer.
 void ppc_exception_handler(Except_Type exception_type, uint32_t srr1_bits) {
@@ -43,8 +44,26 @@ static void fuzz_init() {
         return;
 
     // Provide a minimal memory controller so load/store instructions
-    // hit the "unmapped memory" path instead of crashing on nullptr.
+    // hit a sandbox region instead of crashing on nullptr or aborting on
+    // unmapped memory. We explicitly back a fake RAM region because the
+    // default MemCtrlBase has no ranges until configured.
     mem_ctrl_instance = new MemCtrlBase();
+
+    // Allocate a 64 MiB dummy RAM window for loads/stores to scribble in.
+    static constexpr size_t kFuzzRamSize = 64 * 1024 * 1024;
+    static uint8_t *kFuzzRamBacking = nullptr;
+    if (!kFuzzRamBacking) {
+        kFuzzRamBacking = static_cast<uint8_t *>(std::malloc(kFuzzRamSize));
+        std::memset(kFuzzRamBacking, 0, kFuzzRamSize);
+    }
+    auto *ram_region = mem_ctrl_instance->add_ram_region(0x00000000, kFuzzRamSize,
+                                                         kFuzzRamBacking);
+    if (!ram_region || !ram_region->mem_ptr) {
+        // Log but *do not* bail out. If we skip initialization entirely,
+        // the opcode table remains zeroed and ppc_main_opcode will crash
+        // immediately (observed in GitHub Actions "fuzz-extended").
+        fprintf(stderr, "[fuzz] failed to create MemCtrl RAM region; continuing with minimal init\n");
+    }
 
     // Set up the TimerManager so SPR writes that update the
     // decrementer / timebase don't crash on uninitialised callbacks.
@@ -87,7 +106,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     // Reset MSR to prevent a previous iteration's mtmsr from enabling
     // address translation (IR/DR), which would abort in the MMU when
     // no page tables are set up.
+    auto old_msr = ppc_state.msr;
     ppc_state.msr = MSR::ME | MSR::IP | MSR::FP;
+    // Ensure derived decoder state (ppc_opcode_grabber) is updated too.
+    ppc_msr_did_change(old_msr, ppc_state.msr, /*set_next_instruction_address=*/false);
 
     // When extra bytes are available, use them to seed CPU state so the
     // fuzzer can explore deeper paths (e.g., conditional branches taken
@@ -113,8 +135,20 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                            (uint32_t(extra[8]) << 8)  |  uint32_t(extra[9]);
     }
 
-    // Dispatch the fuzzed opcode.
-    ppc_main_opcode(ppc_opcode_grabber, opcode);
+    // Dispatch the fuzzed opcode. Be defensive: if the opcode table somehow
+    // isn't initialized, fall back to ppc_illegalop instead of segfaulting on
+    // a null/zero function pointer (the failure mode observed in CI "fuzz-extended").
+    uint32_t idx = ((opcode >> 15) & 0x1F800) | (opcode & 0x7FF);
+    PPCOpcode *table = ppc_opcode_grabber;
+    if (!table) {
+        initialize_ppc_opcode_table();
+        table = ppc_opcode_grabber;
+    }
+    PPCOpcode handler = (table && idx < 64 * 2048) ? table[idx] : nullptr;
+    if (!handler) {
+        handler = ppc_illegalop;
+    }
+    handler(opcode);
 
     return 0;
 }
