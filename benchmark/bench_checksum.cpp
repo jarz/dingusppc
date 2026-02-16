@@ -21,18 +21,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include <stdlib.h>
 #include <chrono>
+#include <cstdio>
+#include <limits>
+#include <cinttypes>
+#include "benchmark/bench_api.h"
+#include "benchmark/bench_common.h"
 #include "cpu/ppc/ppcemu.h"
 #include "cpu/ppc/ppcmmu.h"
 #include "devices/memctrl/mpc106.h"
 #include <thirdparty/loguru/loguru.hpp>
 #include <debugger/debugger.h>
-
-#if defined(PPC_BENCHMARKS)
-void ppc_exception_handler(Except_Type exception_type, uint32_t srr1_bits) {
-    power_on = false;
-    power_off_reason = po_benchmark_exception;
-}
-#endif
 
 uint32_t cs_code[] = {
     0x3863FFFC, 0x7C861671, 0x41820090, 0x70600002, 0x41E2001C, 0xA0030004,
@@ -46,24 +44,19 @@ uint32_t cs_code[] = {
     0x7C650194, /* 0x4E800020 */ 0x00005AF0
 };
 
-constexpr uint32_t test_size = 0x8000; // 0x7FFFFFFC is the max
-constexpr uint32_t test_samples = 200;
-constexpr uint32_t test_iterations = 5;
+constexpr uint32_t kDefaultTestSize = 0x8000; // 0x7FFFFFFC is the max
+constexpr uint32_t kDefaultSamples = 200;
+constexpr uint32_t kDefaultRuns = 5;
 
-int main(int argc, char** argv) {
-    int i, j;
+namespace bench_checksum {
 
-    /* initialize logging */
-    loguru::g_preamble_date    = false;
-    loguru::g_preamble_time    = false;
-    loguru::g_preamble_thread  = false;
-
-    loguru::g_stderr_verbosity = 0;
-    loguru::init(argc, argv);
+int run(const BenchOptions& options) {
+    const uint32_t test_size = kDefaultTestSize;
+    const uint32_t samples = options.samples ? options.samples : kDefaultSamples;
+    const uint32_t runs = options.runs ? options.runs : kDefaultRuns;
 
     MPC106* grackle_obj = new MPC106;
 
-    /* we need some RAM */
     if (!grackle_obj->add_ram_region(0, 0x1000 + test_size)) {
         LOG_F(ERROR, "Could not create RAM region");
         delete(grackle_obj);
@@ -74,8 +67,7 @@ int main(int argc, char** argv) {
 
     ppc_cpu_init(grackle_obj, PPC_VER::MPC750, false, tbr_freq);
 
-    /* load executable code into RAM at address 0 */
-    for (i = 0; i < sizeof(cs_code) / sizeof(cs_code[0]); i++) {
+    for (size_t i = 0; i < sizeof(cs_code) / sizeof(cs_code[0]); i++) {
         mmu_write_vmem<uint32_t>(0, i * 4, cs_code[i]);
     }
 
@@ -84,9 +76,9 @@ int main(int argc, char** argv) {
     LOG_F(INFO, "Test size: 0x%X", test_size);
     LOG_F(INFO, "First few bytes:");
     bool did_lf = false;
-    for (i = 0; i < test_size; i++) {
+    for (uint32_t i = 0; i < test_size; i++) {
         uint8_t val = rand() % 256;
-        mmu_write_vmem<uint8_t>(0, 0x1000+i, val);
+        mmu_write_vmem<uint8_t>(0, 0x1000 + i, val);
         if (i < 64) {
             printf("%02x", val);
             did_lf = false;
@@ -99,15 +91,6 @@ int main(int argc, char** argv) {
     if (!did_lf)
         printf("\n");
 
-#if 0
-    /* prepare benchmark code execution */
-    ppc_state.pc = 0;
-    ppc_state.gpr[3] = 0x1000;    // buf
-    ppc_state.gpr[4] = test_size; // len
-    ppc_state.gpr[5] = 0;         // sum
-    enter_debugger();
-#endif
-
     ppc_state.pc = 0;
     ppc_state.gpr[3] = 0x1000;    // buf
     ppc_state.gpr[4] = test_size; // len
@@ -118,22 +101,21 @@ int main(int argc, char** argv) {
     LOG_F(INFO, "Checksum: 0x%08X", ppc_state.gpr[3]);
     uint32_t checksum = ppc_state.gpr[3];
 
-    // run the clock once for cache fill etc.
-    uint64_t overhead = -1;
-    for (j = 0; j < test_samples; j++) {
+    uint64_t overhead = UINT64_MAX;
+    for (uint32_t j = 0; j < samples; j++) {
         auto start_time   = std::chrono::steady_clock::now();
         auto end_time     = std::chrono::steady_clock::now();
         auto time_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time);
         if (time_elapsed.count() < overhead)
             overhead = time_elapsed.count();
     }
-    LOG_F(INFO, "Overhead Time: %lld ns", overhead);
+    LOG_F(INFO, "Overhead Time: %" PRIu64 " ns", static_cast<uint64_t>(overhead));
 
     for (int theproc = 0; theproc < 2; theproc++) {
         LOG_F(INFO, "Doing %s", theproc ? "ppc_exec_until" : "ppc_exec");
-        for (i = 0; i < test_iterations; i++) {
-            uint64_t best_sample = -1;
-            for (j = 0; j < test_samples; j++) {
+        for (uint32_t i = 0; i < runs; i++) {
+            uint64_t best_sample = UINT64_MAX;
+            for (uint32_t j = 0; j < samples; j++) {
                 ppc_state.pc = 0;
                 ppc_state.gpr[3] = 0x1000;    // buf
                 ppc_state.gpr[4] = test_size; // len
@@ -141,7 +123,7 @@ int main(int argc, char** argv) {
                 power_on = true;
 
                 auto start_time   = std::chrono::steady_clock::now();
-                    (theproc) ? ppc_exec_until(0xC4) : ppc_exec();
+                (theproc) ? ppc_exec_until(0xC4) : ppc_exec();
                 auto end_time     = std::chrono::steady_clock::now();
                 auto time_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time);
                 if (time_elapsed.count() < best_sample)
@@ -150,7 +132,7 @@ int main(int argc, char** argv) {
             if (ppc_state.gpr[3] != checksum)
                 LOG_F(INFO, "Checksum: 0x%08X", ppc_state.gpr[3]);
             best_sample -= overhead;
-            LOG_F(INFO, "(%d) %lld ns, %.4lf MiB/s", i+1, best_sample, 1E9 * test_size / (best_sample * 1024 * 1024));
+            LOG_F(INFO, "(%u) %" PRIu64 " ns, %.4lf MiB/s", i + 1, static_cast<uint64_t>(best_sample), 1E9 * test_size / (best_sample * 1024 * 1024));
         }
     }
 
@@ -158,3 +140,13 @@ int main(int argc, char** argv) {
 
     return 0;
 }
+
+void register_benchmarks(std::vector<Bench>& benches) {
+    benches.push_back({
+        .name = "checksum",
+        .description = "Checksum kernel (bench1) with exec/exec_until",
+        .run = run,
+    });
+}
+
+} // namespace bench_checksum
