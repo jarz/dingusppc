@@ -52,6 +52,11 @@ endif()
 option(DPPC_BUILD_PPC_TESTS  "Build PowerPC tests" OFF)
 option(DPPC_BUILD_BENCHMARKS "Build benchmarking programs" OFF)
 option(DPPC_BUILD_FUZZ       "Build fuzz targets (requires Clang and libFuzzer)" OFF)
+# Ensure the CMake option also becomes a preprocessor define for all targets
+# (useful for shared code paths like ppcmmu logging throttling).
+if (DPPC_BUILD_FUZZ)
+    add_compile_definitions(DPPC_BUILD_FUZZ=1)
+endif()
 
 option(DPPC_68K_DEBUGGER   "Enable 68k debugging" OFF)
 
@@ -291,12 +296,16 @@ endif()
 if (DPPC_BUILD_FUZZ)
     # Using PPC_SOURCES from cpu/ppc/CMakeLists.txt to avoid duplicate globs
 
+    add_library(fuzz_shims OBJECT fuzz/libcxx_shims.cpp)
+    target_compile_options(fuzz_shims PRIVATE -fno-omit-frame-pointer)
+
     set(FUZZ_COMMON_OBJECTS $<TARGET_OBJECTS:core>
                             $<TARGET_OBJECTS:debugger>
                             $<TARGET_OBJECTS:devices>
                             $<TARGET_OBJECTS:machines>
                             $<TARGET_OBJECTS:utils>
-                            $<TARGET_OBJECTS:loguru>)
+                            $<TARGET_OBJECTS:loguru>
+                            $<TARGET_OBJECTS:fuzz_shims>)
 
     set(FUZZ_COMMON_LIBS SDL2::SDL2main SDL2::SDL2 cubeb
                          ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
@@ -304,7 +313,8 @@ if (DPPC_BUILD_FUZZ)
     # Helper: declare a fuzz target with the standard flags.
     # Combines libFuzzer with ASan + UBSan for maximum bug detection.
     function(add_fuzz_target TARGET_NAME)
-        target_compile_definitions(${TARGET_NAME} PRIVATE PPC_TESTS)
+        target_compile_definitions(${TARGET_NAME} PRIVATE PPC_TESTS DPPC_BUILD_FUZZ=1)
+        # Default: rely on compiler-rt's libFuzzer (provides main())
         target_compile_options(${TARGET_NAME} PRIVATE
             -fsanitize=fuzzer,address,undefined
             -fno-sanitize-recover=undefined
@@ -312,6 +322,14 @@ if (DPPC_BUILD_FUZZ)
         target_link_options(${TARGET_NAME} PRIVATE
             -fsanitize=fuzzer,address,undefined)
         target_link_libraries(${TARGET_NAME} PRIVATE ${FUZZ_COMMON_LIBS})
+        # Homebrew LLVM on Apple Silicon ships compiler-rt but may lack
+        # libclang_rt.fuzzer_osx.a or newer libc++ ABI bits (__hash_memory).
+        # Provide optional fallback linking with libFuzzer.a if available
+        # (keeps Linux CI untouched) and shim missing symbols in fuzz_shims.
+        find_library(LIB_FUZZER NAMES libFuzzer.a PATHS ${LLVM_LIBRARY_DIRS} /opt/homebrew/opt/llvm/lib /usr/lib/llvm*/lib /usr/lib/clang/*/lib/linux NO_DEFAULT_PATH)
+        if (LIB_FUZZER)
+            target_link_libraries(${TARGET_NAME} PRIVATE ${LIB_FUZZER})
+        endif()
         if (DPPC_68K_DEBUGGER)
             target_link_libraries(${TARGET_NAME} PRIVATE capstone)
         endif()

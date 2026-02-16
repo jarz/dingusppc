@@ -672,18 +672,54 @@ static TLBEntry* dtlb2_refill(uint32_t guest_va, int is_write, bool is_dbg = fal
         tlb_entry->phys_tag = phys_addr & ~0xFFFUL;
         return tlb_entry;
     } else {
-        if (!is_dbg) {
-        static uint32_t last_phys_addr = -1;
-        static uint32_t first_phys_addr = -1;
-        if (phys_addr != last_phys_addr + 4) {
-            if (last_phys_addr != -1 && last_phys_addr != first_phys_addr) {
-                LOG_F(WARNING, "                                                         ... phys_addr=0x%08X", last_phys_addr);
+        // In fuzz mode, unmapped accesses are expected (random opcodes touching
+        // speculative addresses). To avoid log spam and keep fuzzer throughput
+        // high, emit at most a handful of notices (configurable via env var).
+#ifdef DPPC_BUILD_FUZZ
+        static bool s_checked_env = false;
+        static bool s_verbose = false;
+        static uint32_t s_log_budget = 4; // log first few ranges only
+        if (!s_checked_env) {
+            s_checked_env = true;
+            if (const char *env = std::getenv("DPPC_FUZZ_VERBOSE_MEM")) {
+                s_verbose = (std::atoi(env) != 0);
             }
-            first_phys_addr = phys_addr;
-            LOG_F(WARNING, "Access to unmapped physical memory, phys_addr=0x%08X", first_phys_addr);
+            if (const char *budget = std::getenv("DPPC_FUZZ_MEM_LOG_BUDGET")) {
+                uint32_t parsed = static_cast<uint32_t>(std::max(0, std::atoi(budget)));
+                s_log_budget = (parsed == 0 ? s_log_budget : parsed);
+            }
         }
-        last_phys_addr = phys_addr;
+        if (s_verbose || s_log_budget > 0) {
+            static uint32_t last_phys_addr = static_cast<uint32_t>(-1);
+            static uint32_t first_phys_addr = static_cast<uint32_t>(-1);
+            if (phys_addr != last_phys_addr + 4) {
+                if (last_phys_addr != static_cast<uint32_t>(-1) && last_phys_addr != first_phys_addr) {
+                    VLOG_F(s_verbose ? loguru::Verbosity_WARNING : loguru::Verbosity_INFO,
+                           "                                                         ... phys_addr=0x%08X", last_phys_addr);
+                }
+                first_phys_addr = phys_addr;
+                VLOG_F(s_verbose ? loguru::Verbosity_WARNING : loguru::Verbosity_INFO,
+                       "Access to unmapped physical memory, phys_addr=0x%08X", first_phys_addr);
+                if (!s_verbose && s_log_budget > 0) {
+                    --s_log_budget;
+                }
+            }
+            last_phys_addr = phys_addr;
         }
+#else
+        if (!is_dbg) {
+            static uint32_t last_phys_addr = static_cast<uint32_t>(-1);
+            static uint32_t first_phys_addr = static_cast<uint32_t>(-1);
+            if (phys_addr != last_phys_addr + 4) {
+                if (last_phys_addr != static_cast<uint32_t>(-1) && last_phys_addr != first_phys_addr) {
+                    LOG_F(WARNING, "                                                         ... phys_addr=0x%08X", last_phys_addr);
+                }
+                first_phys_addr = phys_addr;
+                LOG_F(WARNING, "Access to unmapped physical memory, phys_addr=0x%08X", first_phys_addr);
+            }
+            last_phys_addr = phys_addr;
+        }
+#endif
         return &UnmappedMem;
     }
 }
