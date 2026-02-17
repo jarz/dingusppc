@@ -71,6 +71,18 @@ AMIC::AMIC() : MMIODevice()
 
     // connect Ethernet HW
     this->mace = dynamic_cast<MaceController*>(gMachineObj->get_comp_by_name("Mace"));
+    if (this->mace) {
+        // Wire IRQ callback so MACE can signal up through AMIC
+        this->mace->set_irq_callback([this](bool level) {
+            this->ack_cpu_int(CPU_INT_ENET, level ? 1 : 0);
+        });
+        // Allow backend selection via machine property
+        try {
+            this->mace->set_backend_name(GET_STR_PROP("net_backend"));
+        } catch (...) {
+            // property optional
+        }
+    }
 
     // connect Cuda
     this->viacuda = dynamic_cast<ViaCuda*>(gMachineObj->get_comp_by_name("ViaCuda"));
@@ -206,6 +218,10 @@ uint32_t AMIC::read(uint32_t rgn_start, uint32_t offset, int size)
     case AMICReg::DMA_Base_Addr_2:
     case AMICReg::DMA_Base_Addr_3:
         return (this->dma_base >> (3 - (offset & 3)) * 8) & 0xFF;
+    case AMICReg::Enet_DMA_Xmt_Ctrl:
+        return this->enet_dma_xmt_ctrl;
+    case AMICReg::Enet_DMA_Rcv_Ctrl:
+        return this->enet_dma_rcv_ctrl;
     case AMICReg::SCSI_DMA_Ctrl:
         return this->curio_dma->read_stat();
     case AMICReg::Floppy_Addr_Ptr_0:
@@ -398,10 +414,29 @@ void AMIC::write(uint32_t rgn_start, uint32_t offset, uint32_t value, int size)
     case AMICReg::DMA_Base_Addr_3:
         SET_ADDR_BYTE(this->dma_base, offset, value);
         this->dma_base &= 0xFFFC0000UL;
-        LOG_F(9, "AMIC: DMA base address set to 0x%X", this->dma_base);
+        // Default Enet DMA base piggy-backs on dma_base with a standard offset.
+        static constexpr uint32_t kAmicEnetDmaOffset = 0x18000; // heuristic from PDM docs
+        this->enet_dma_base = this->dma_base + kAmicEnetDmaOffset;
+        LOG_F(9, "AMIC: DMA base address set to 0x%X enet_base=0x%X", this->dma_base, this->enet_dma_base);
         break;
     case AMICReg::Enet_DMA_Xmt_Ctrl:
-        LOG_F(INFO, "AMIC Ethernet Transmit DMA Ctrl updated, val=%x", value);
+        // Minimal stub: interpret bit0 as reset, bit1 as run, bit7 as clear IF
+        if (value & 0x01) { // reset
+            enet_dma_xmt_ctrl = 0;
+        }
+        // Write-through of control bits
+        enet_dma_xmt_ctrl = value;
+        LOG_F(9, "AMIC Enet DMA TX ctrl=0x%02x", value);
+        if (value & 0x02) { // RUN
+            // Use per-device base if set, otherwise fall back to DMA base + offset
+            uint32_t base = enet_dma_base ? enet_dma_base : (dma_base + 0x18000);
+            size_t len = enet_dma_len ? enet_dma_len : 1514;
+            if (this->mace) {
+                size_t sent = this->mace->dma_pull_tx(base, len);
+                (void)sent;
+            }
+            // Set IF bit if we ever model it; for now just log
+        }
         break;
     case AMICReg::SCSI_DMA_Base_0:
     case AMICReg::SCSI_DMA_Base_1:
@@ -426,7 +461,17 @@ void AMIC::write(uint32_t rgn_start, uint32_t offset, uint32_t value, int size)
         this->curio_dma->write_ctrl(value);
         break;
     case AMICReg::Enet_DMA_Rcv_Ctrl:
-        LOG_F(INFO, "AMIC Ethernet Receive DMA Ctrl updated, val=%x", value);
+        // Minimal stub: interpret bit0 as reset, bit1 as run
+        if (value & 0x01) {
+            enet_dma_rcv_ctrl = 0;
+        }
+        enet_dma_rcv_ctrl = value;
+        LOG_F(9, "AMIC Enet DMA RX ctrl=0x%02x", value);
+        if (value & 0x02) {
+            // For now rely on Mace polling backend; DMA path would map guest buffer and deposit frame.
+            // Hook could call mace->poll_backend() to force immediate poll.
+            if (this->mace) this->mace->poll_backend();
+        }
         break;
     case AMICReg::Floppy_Addr_Ptr_2:
     case AMICReg::Floppy_Addr_Ptr_3:

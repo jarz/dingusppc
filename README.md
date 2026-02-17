@@ -56,6 +56,8 @@ You need to install development tools first.
 
 At minimum, a C++20 compliant compiler and [CMake](https://cmake.org) are required.
 
+> 🛜 **Networking (experimental)**: Choose backend via `--net_backend` (`loopback`, `slirp`, `pcap`, `vmnet`). Build with `-D DINGUS_NET_ENABLE_SLIRP=ON` or `-D DINGUS_NET_ENABLE_PCAP=ON` (auto-detected if available). See [networking docs](zdocs/users/networking.md).
+
 Clone the repository using the appropriate command:
 
 ```

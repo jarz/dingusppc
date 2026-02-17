@@ -30,6 +30,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <sstream>
 #include <string>
 #include <vector>
+#include <filesystem>
 
 using namespace std;
 
@@ -91,7 +92,13 @@ static void read_test_data() {
     int i, lineno;
     uint32_t opcode, dest, src1, src2, check_xer, check_cr;
 
-    ifstream tfstream("ppcinttests.csv");
+    namespace fs = std::filesystem;
+    std::string fname = "ppcinttests.csv";
+    if (!fs::exists(fname)) {
+        cout << "Could not open tests CSV file; skipping ppcinttests.csv" << endl;
+        return;
+    }
+    ifstream tfstream(fname);
     if (!tfstream.is_open()) {
         cout << "Could not open tests CSV file. Exiting..." << endl;
         return;
@@ -203,15 +210,21 @@ static void read_test_float_data() {
     double dfp_src1, dfp_src2, dfp_src3;
     string rounding_mode;
 
-    ifstream tf2stream("ppcfloattests.csv");
-    if (!tf2stream.is_open()) {
+    namespace fs = std::filesystem;
+    std::string fname = "ppcfloattests.csv";
+    if (!fs::exists(fname)) {
+        cout << "Could not open tests CSV file; skipping ppcfloattests.csv" << endl;
+        return;
+    }
+    ifstream tfstream(fname);
+    if (!tfstream.is_open()) {
         cout << "Could not open tests CSV file. Exiting..." << endl;
         return;
     }
 
     lineno = 0;
 
-    while (getline(tf2stream, line)) {
+    while (getline(tfstream, line)) {
         lineno++;
 
         if (line.empty() || !line.rfind("#", 0))
@@ -352,14 +365,33 @@ int main() {
 
     int disasm_failures = test_ppc_disasm();
 
+    // Networking (MACE) smoke test
+    int mace_failures = test_mace_loopback_basic();
+    if (mace_failures) {
+        cout << "MACE loopback test failures: " << mace_failures << endl;
+    } else {
+        cout << "MACE loopback test passed" << endl;
+    }
+
+    // Networking (BigMac) smoke test
+    int bmac_failures = test_bigmac_loopback_basic();
+    if (bmac_failures) {
+        cout << "BigMac loopback test failures: " << bmac_failures << endl;
+    } else {
+        cout << "BigMac loopback test passed" << endl;
+    }
+
     cout << endl;
     cout << "=== Summary ===" << endl;
     cout << "Instruction test failures: " << nfailed << endl;
     cout << "Disassembler test failures: " << disasm_failures << endl;
+    cout << "MACE loopback test failures: " << mace_failures << endl;
+    cout << "BigMac loopback test failures: " << bmac_failures << endl;
 
     // Disassembler test failures are regressions and must fail CI.
     // Instruction test failures (nfailed) are logged above for
     // visibility but do not fail CI because known FP edge-case
     // mismatches exist (currently 528 failures).
-    return disasm_failures > 0 ? 1 : 0;
+    // Networking tests should also fail CI if they regress.
+    return (disasm_failures > 0 || mace_failures > 0 || bmac_failures > 0) ? 1 : 0;
 }

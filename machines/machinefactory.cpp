@@ -93,6 +93,7 @@ static const map<string, string> PropHelp = {
     {"vci_D",           "insert a VCI device 0x0D"},
     {"vci_E",           "insert a VCI device 0x0E"},
     {"serial_backend",  "specifies the backend for the serial port"},
+    {"net_backend",     "specifies the networking backend (null, loopback, slirp, pcap, vmnet)"},
     {"emmo",            "enables/disables factory HW tests during startup"},
     {"cpu",             "specifies CPU"},
     {"adb_devices",     "specifies which ADB device(s) to attach"},

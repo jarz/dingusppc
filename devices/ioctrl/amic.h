@@ -349,6 +349,12 @@ private:
     // SCSI DMA state
     uint32_t    scsi_addr_ptr;
 
+    // Ethernet DMA state (very rough stub for now)
+    uint32_t    enet_dma_base = 0; // guest-provided buffer base
+    uint16_t    enet_dma_len  = 0; // guest-provided length hint
+    uint8_t     enet_dma_xmt_ctrl = 0;
+    uint8_t     enet_dma_rcv_ctrl = 0;
+
     //uint8_t     scsi_dma_cs = 0;   // SCSI DMA control/status register value
 
     // interrupt state

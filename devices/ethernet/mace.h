@@ -26,9 +26,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include <devices/common/dmacore.h>
 #include <devices/common/hwcomponent.h>
+#include <utils/net/ether_backend.h>
+#include <cpu/ppc/ppcmmu.h>
 
 #include <cinttypes>
 #include <memory>
+#include <deque>
+#include <vector>
+#include <string>
+#include <functional>
+#include <mutex>
 
 /** Known MACE chip IDs. */
 constexpr auto MACE_ID_REV_B0 = 0x0940;    // Darwin-0.3 source
@@ -88,17 +95,49 @@ public:
         this->set_name("MACE");
         this->supports_types(HWCompType::MMIO_DEV | HWCompType::ETHER_MAC);
     }
-    ~MaceController() = default;
+    ~MaceController() override = default;
 
     static std::unique_ptr<HWComponent> create() {
         return std::unique_ptr<MaceController>(new MaceController(MACE_ID_REV_A2));
     }
 
+    int device_postinit() override;
+
     // MACE registers access
     uint8_t read(uint8_t reg_offset);
     void    write(uint8_t reg_offset, uint8_t value);
 
+    // Called by AMIC DMA stubs when a TX buffer is ready; returns bytes consumed.
+    size_t dma_pull_tx(uint32_t addr, size_t max_len);
+    // Called periodically (TimerManager) to poll backend and enqueue RX buffers.
+    void poll_backend();
+
+    // Allow tests to override DMA mapper (so we can avoid full MMU bring-up)
+    using MmuMapFn = MapDmaResult(*)(uint32_t, uint32_t, bool);
+    static void set_mmu_map_dma_hook(MmuMapFn fn) { mmu_map_dma_hook = fn; }
+    static void disable_timer_for_tests(bool disable) { disable_timer_for_tests_flag = disable; }
+
+    // For tests/debugging
+    void set_backend_name(const std::string& name) { this->backend_name = name; }
+
+    // Inject a frame directly into RX queue (test helper)
+    void inject_rx_test_frame(const uint8_t* buf, size_t len);
+
+    // AMIC wires this so we can assert/clear the IRQ line.
+    void set_irq_callback(std::function<void(bool)> cb) { irq_cb = std::move(cb); }
+
 private:
+    static MmuMapFn mmu_map_dma_hook;
+    static bool disable_timer_for_tests_flag;
+
+    struct TxFrame {
+        std::vector<uint8_t> data;
+    };
+
+    bool ensure_backend();
+    void enqueue_rx_frame(const uint8_t* buf, size_t len);
+    bool mac_accepts(const uint8_t* buf, size_t len) const;
+
     uint16_t    chip_id;          // per-instance MACE Chip ID
     uint8_t     addr_cfg      = 0;
     uint8_t     addr_ptr      = 0;
@@ -123,6 +162,24 @@ private:
     // interrupt stuff
     uint8_t     int_stat  = 0;
     uint8_t     int_mask  = 0;
+
+    // backend + queues
+    std::string backend_name = "null";
+    std::unique_ptr<EtherBackend> backend;
+    MacAddr mac{};
+
+    std::function<void(bool)> irq_cb;
+
+    std::deque<TxFrame> txq;
+
+    // RX buffer staging; small circular buffer of fixed-size slots. We don't model the full
+    // hardware FIFO yet, just enough to hand frames to the guest via DMA.
+    struct RxSlot { std::vector<uint8_t> data; };
+    std::deque<RxSlot> rxq;
+    mutable std::mutex mu_;
+
+    // TODO: consider using last_poll_ns for adaptive poll pacing
+    uint64_t last_poll_ns = 0;
 };
 
 #endif // MACE_H
