@@ -152,6 +152,15 @@ Access the factory tests
 Change where the output of Open Firmware is directed to, either to the command line (with stdio) or a Unix socket (unavailable in Windows builds). Open Firmware 1.x outputs here by default.
 
 ```
+--net_backend=null
+--net_backend=loopback
+--net_backend=slirp
+--net_backend=pcap
+--net_backend=vmnet
+```
+Select networking backend. `loopback` is a test/dummy backend that echoes frames back to the guest. `slirp` offers user-mode NAT (recommended for host networking in CI), `pcap` enables bridged/promisc capture, and `vmnet` uses Apple’s vmnet.framework on macOS. Defaults to `null`.
+
+```
 mon_id
 ```
 

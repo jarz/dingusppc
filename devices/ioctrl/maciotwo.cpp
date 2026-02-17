@@ -25,6 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <devices/ioctrl/macio.h>
 #include <loguru.hpp>
 #include <machines/machinebase.h>
+#include <vector>
 
 MacIoTwo::MacIoTwo(std::string name, uint16_t dev_id) : MacIoBase(name, dev_id) {
     // NVRAM connection
@@ -57,6 +58,51 @@ MacIoTwo::MacIoTwo(std::string name, uint16_t dev_id) : MacIoBase(name, dev_id) 
         this->bmac = dynamic_cast<BigMac*>(gMachineObj->get_comp_by_type(HWCompType::ETHER_MAC));
         this->enet_xmit_dma = std::unique_ptr<DMAChannel> (new DMAChannel("BmacTx"));
         this->enet_rcv_dma  = std::unique_ptr<DMAChannel> (new DMAChannel("BmacRx"));
+        if (this->bmac) {
+            try { this->bmac->set_backend_name(GET_STR_PROP("net_backend")); } catch (...) {}
+            // Hook DBDMA callbacks: OUTPUT->TX, INPUT->RX
+            this->enet_xmit_dma->set_callbacks(
+                // start
+                [this]() {
+                    // Nothing special on start
+                },
+                // stop
+                []() {});
+            this->enet_xmit_dma->set_data_callbacks(
+                // in_cb (device -> memory) unused for TX
+                nullptr,
+                // out_cb (memory -> device)
+                [this]() {
+                    if (!this->bmac) return;
+                    uint32_t avail_len = 0; uint8_t* p_data = nullptr;
+                    // Pull one frame worth of data; DBDMA will provide queue_len via pull_data
+                    auto res = this->enet_xmit_dma->pull_data(1600, &avail_len, &p_data);
+                    if (avail_len && p_data) {
+                        this->bmac->tx_from_host(p_data, avail_len);
+                    }
+                    this->enet_xmit_dma->end_pull_data();
+                },
+                // flush
+                nullptr);
+
+            this->enet_rcv_dma->set_callbacks(
+                []() {}, []() {});
+            this->enet_rcv_dma->set_data_callbacks(
+                // in_cb (device -> memory)
+                [this]() {
+                    if (!this->bmac) return;
+                    // Poll backend and push any available frame into DBDMA buffer
+                    this->bmac->poll_backend();
+                    std::vector<uint8_t> frame;
+                    if (this->bmac->fetch_next_rx_frame(frame)) {
+                        this->enet_rcv_dma->push_data(reinterpret_cast<char*>(frame.data()), static_cast<int>(frame.size()));
+                        this->enet_rcv_dma->end_push_data();
+                    }
+                },
+                // out_cb unused for RX
+                nullptr,
+                nullptr);
+        }
     }
 
     // set EMMO status (active low)

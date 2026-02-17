@@ -23,7 +23,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include <devices/deviceregistry.h>
 #include <devices/ethernet/bigmac.h>
+#include <core/timermanager.h>
+#include <machines/machineproperties.h>
+#include <cpu/ppc/ppcmmu.h>
 #include <loguru.hpp>
+
+namespace {
+constexpr uint64_t kBigMacPollIntervalNs = 10'000'000ull; // 10 ms
+constexpr size_t kBigMacMaxFrameLen = 1600;
+}
 
 BigMac::BigMac(uint8_t id) {
     set_name("BigMac");
@@ -33,11 +41,126 @@ BigMac::BigMac(uint8_t id) {
     this->chip_reset();
 }
 
+int BigMac::device_postinit() {
+    try {
+        backend_name = GET_STR_PROP("net_backend");
+    } catch (...) {}
+    return 0;
+}
+
+// Static hooks for tests
+BigMac::MmuMapFn BigMac::mmu_map_dma_hook = nullptr;
+bool BigMac::disable_timer_for_tests_flag = false;
+
+bool bigmac_mac_accepts(const MacAddr& mac, const uint8_t* dst) {
+    // broadcast?
+    bool broadcast = true;
+    for (int i = 0; i < 6; ++i) broadcast &= (dst[i] == 0xFF);
+    if (broadcast) return true;
+    // exact match
+    for (int i = 0; i < 6; ++i) if (dst[i] != mac.bytes[i]) return false;
+    return true;
+}
+
+bool BigMac::ensure_backend() {
+    std::lock_guard<std::mutex> _{mu_};
+    if (backend) return true;
+    std::string err;
+    backend = make_ether_backend(backend_name);
+    if (!backend) return false;
+    MacAddr mac = get_mac_from_srom();
+    EtherConfig cfg{}; cfg.promisc = true; // BigMac supports promisc; enable for now
+    if (!backend->open(mac, cfg, err)) {
+        LOG_F(ERROR, "%s: backend open failed: %s", name.c_str(), err.c_str());
+        backend.reset();
+        return false;
+    }
+    if (!disable_timer_for_tests_flag) {
+        TimerManager::get_instance()->add_cyclic_timer(kBigMacPollIntervalNs, [this]() { this->poll_backend(); });
+    }
+    return true;
+}
+
+void BigMac::enqueue_rx_frame(const uint8_t* buf, size_t len) {
+    MacAddr mac = get_mac_from_srom();
+    if (!bigmac_mac_accepts(mac, buf)) {
+        ++rcv_frame_cnt; // count but drop
+        return;
+    }
+    RxSlot slot;
+    slot.data.assign(buf, buf + len);
+    slot.cursor = 0;
+    {
+        std::lock_guard<std::mutex> _{mu_};
+        rxq.push_back(std::move(slot));
+        if (fifo_fc < 0xFF) ++fifo_fc;
+    }
+    ++rcv_frame_cnt;
+    // set status bit (GLOB_STAT) and trigger interrupt if unmasked (mask is inverted: 0 enables)
+    stat |= 0x0001; // bit0 = RX event
+    if (!(event_mask & 0x0001) && irq_cb) {
+        irq_cb(true);
+    }
+}
+
+bool BigMac::fetch_next_rx_frame(std::vector<uint8_t>& out_frame) {
+    std::lock_guard<std::mutex> _{mu_};
+    if (rxq.empty()) return false;
+    out_frame = rxq.front().data;
+    rxq.pop_front();
+    if (fifo_fc) --fifo_fc;
+    return true;
+}
+
+MacAddr BigMac::get_mac_from_srom() const {
+    MacAddr mac{};
+    mac.bytes[0] = (srom_data[10] >> 8) & 0xFF; mac.bytes[1] = srom_data[10] & 0xFF;
+    mac.bytes[2] = (srom_data[11] >> 8) & 0xFF; mac.bytes[3] = srom_data[11] & 0xFF;
+    mac.bytes[4] = (srom_data[12] >> 8) & 0xFF; mac.bytes[5] = srom_data[12] & 0xFF;
+    return mac;
+}
+
+void BigMac::inject_rx_test_frame(const uint8_t* buf, size_t len) {
+    enqueue_rx_frame(buf, len);
+}
+
+size_t BigMac::dma_pull_tx(uint32_t addr, size_t len) {
+    if (!ensure_backend()) return 0;
+    if (!len || len > kBigMacMaxFrameLen) len = kBigMacMaxFrameLen;
+    MapDmaResult res{};
+    if (mmu_map_dma_hook) {
+        res = mmu_map_dma_hook(addr, len, false);
+    } else {
+        res = mmu_map_dma_mem(addr, len, false);
+    }
+    if (!res.host_va) return 0;
+    tx_from_host(res.host_va, len);
+    return len;
+}
+
+void BigMac::tx_from_host(const uint8_t* buf, size_t len) {
+    if (!ensure_backend()) return;
+    std::string err;
+    {
+        std::lock_guard<std::mutex> _{mu_};
+        if (!backend || !backend->send(buf, len, err)) {
+            LOG_F(ERROR, "%s: backend send failed: %s", name.c_str(), err.c_str());
+            stat |= 0x8000; // error bit
+            if (!(event_mask & 0x8000) && irq_cb) irq_cb(true);
+        }
+    }
+}
+
 void BigMac::chip_reset() {
-    this->event_mask = 0xFFFFU; // disable HW events causing on-chip interrupts
+    // According to docs, EVENT_MASK bits are inverted: 0 = enabled, 1 = masked.
+    // Hardware typically comes up with interrupts masked. Keep that behavior;
+    // tests may explicitly unmask via EVENT_MASK writes.
+    this->event_mask = 0xFFFFU;
     this->rng_seed   = (uint16_t)rand();
     this->stat = 0;
-
+    this->fifo_fc = 0;
+    std::lock_guard<std::mutex> _{mu_};
+    while (!rxq.empty()) rxq.pop_front();
     this->phy_reset();
     this->mii_reset();
     this->srom_reset();
@@ -113,10 +236,17 @@ uint16_t BigMac::read(uint16_t reg_offset) {
         return this->rx_min;
     case BigMacReg::MEM_ADD:
         return this->mem_add;
-    case BigMacReg::MEM_DATA_HI:
+    case BigMacReg::MEM_DATA_HI: {
+        // Simulate FIFO: return two bytes at a time (big endian)
+        uint8_t hi = pop_rx_byte();
+        uint8_t lo = pop_rx_byte();
+        this->mem_data_hi = (hi << 8) | lo;
+        this->mem_add += 2; // advance pointer
         return this->mem_data_hi;
+    }
     case BigMacReg::MEM_DATA_LO:
-        return this->mem_data_lo;
+        // Lower 16 bits mirror MEM_DATA_HI for now
+        return this->mem_data_hi;
     case BigMacReg::IPG_1:
         return this->ipg1;
     case BigMacReg::IPG_2:
@@ -196,6 +326,10 @@ void BigMac::write(uint16_t reg_offset, uint16_t value) {
         break;
     case BigMacReg::MEM_ADD:
         this->mem_add = value;
+        break;
+    case BigMacReg::MEM_DATA_HI:
+    case BigMacReg::MEM_DATA_LO:
+        // For now, ignore writes to data window
         break;
     case BigMacReg::EVENT_MASK:
         this->event_mask = value;
@@ -516,6 +650,44 @@ void BigMac::phy_reg_write(uint8_t reg_num, uint16_t value) {
     }
 }
 
+void BigMac::poll_backend() {
+    if (!ensure_backend()) return;
+    uint8_t buf[kBigMacMaxFrameLen];
+    std::string err;
+    int got = 0;
+    {
+        std::lock_guard<std::mutex> _{mu_};
+        got = backend ? backend->recv(buf, sizeof(buf), err) : 0;
+    }
+    if (got < 0) {
+        LOG_F(ERROR, "%s: backend recv error: %s", name.c_str(), err.c_str());
+        stat |= 0x8000;
+        if (!(event_mask & 0x8000) && irq_cb) irq_cb(true);
+        return;
+    }
+    if (got == 0) return;
+    enqueue_rx_frame(buf, static_cast<size_t>(got));
+}
+
+uint8_t BigMac::pop_rx_byte() {
+    std::lock_guard<std::mutex> _{mu_};
+    while (!rxq.empty()) {
+        auto &front = rxq.front();
+        if (front.cursor >= front.data.size()) {
+            rxq.pop_front();
+            if (fifo_fc) --fifo_fc;
+            continue;
+        }
+        uint8_t b = front.data[front.cursor++];
+        if (front.cursor >= front.data.size()) {
+            rxq.pop_front();
+            if (fifo_fc) --fifo_fc;
+        }
+        return b;
+    }
+    return 0;
+}
+
 // ======================== MAC Serial EEPROM emulation ========================
 void BigMac::srom_reset() {
     this->srom_csr_old = 0;
@@ -580,12 +752,17 @@ void BigMac::srom_xmit_bit(const uint8_t bit_val) {
     }
 }
 
+static const std::vector<std::string> NetBackends = {"null", "loopback", "slirp", "pcap", "vmnet"};
+static const PropMap BigMac_Properties = {
+    {"net_backend", new StrProperty("null", NetBackends)},
+};
+
 static const DeviceDescription BigMac_Heathrow_Descriptor = {
-    BigMac::create_for_heathrow, {}, {}, HWCompType::MMIO_DEV | HWCompType::ETHER_MAC
+    BigMac::create_for_heathrow, {}, BigMac_Properties, HWCompType::MMIO_DEV | HWCompType::ETHER_MAC
 };
 
 static const DeviceDescription BigMac_Paddington_Descriptor = {
-    BigMac::create_for_paddington, {}, {}, HWCompType::MMIO_DEV | HWCompType::ETHER_MAC
+    BigMac::create_for_paddington, {}, BigMac_Properties, HWCompType::MMIO_DEV | HWCompType::ETHER_MAC
 };
 
 REGISTER_DEVICE(BigMacHeathrow, BigMac_Heathrow_Descriptor);

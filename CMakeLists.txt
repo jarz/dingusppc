@@ -52,6 +52,28 @@ endif()
 option(DPPC_BUILD_PPC_TESTS  "Build PowerPC tests" OFF)
 option(DPPC_BUILD_BENCHMARKS "Build benchmarking programs" OFF)
 option(DPPC_BUILD_FUZZ       "Build fuzz targets (requires Clang and libFuzzer)" OFF)
+
+# Networking backends (optional)
+option(DINGUS_NET_ENABLE_SLIRP "Enable libslirp networking backend" OFF)
+option(DINGUS_NET_ENABLE_PCAP  "Enable libpcap networking backend" OFF)
+option(DINGUS_NET_ENABLE_VMNET "Enable vmnet.framework backend (macOS)" OFF)
+
+# Auto-detect libslirp/libpcap if not explicitly requested
+find_package(PkgConfig)
+if (NOT DEFINED DINGUS_NET_ENABLE_SLIRP AND PKG_CONFIG_FOUND)
+    pkg_check_modules(SLIRP libslirp)
+    if (SLIRP_FOUND)
+        message(STATUS "libslirp found; enabling slirp backend")
+        set(DINGUS_NET_ENABLE_SLIRP ON CACHE BOOL "Enable libslirp networking backend")
+    endif()
+endif()
+if (NOT DEFINED DINGUS_NET_ENABLE_PCAP AND PKG_CONFIG_FOUND)
+    pkg_check_modules(PCAP libpcap)
+    if (PCAP_FOUND)
+        message(STATUS "libpcap found; enabling pcap backend")
+        set(DINGUS_NET_ENABLE_PCAP ON CACHE BOOL "Enable libpcap networking backend")
+    endif()
+endif()
 # Ensure the CMake option also becomes a preprocessor define for all targets
 # (useful for shared code paths like ppcmmu logging throttling).
 if (DPPC_BUILD_FUZZ)
@@ -222,6 +244,9 @@ endif()
 if (APPLE)
     find_library(COCOA_LIBRARY Cocoa)
     target_link_libraries(dingusppc PRIVATE ${COCOA_LIBRARY})
+    if (DINGUS_VMNET_FRAMEWORK)
+        target_link_libraries(dingusppc PRIVATE ${DINGUS_VMNET_FRAMEWORK})
+    endif()
 endif()
 
 
@@ -248,6 +273,9 @@ if (DPPC_BUILD_PPC_TESTS)
 
     if (DPPC_68K_DEBUGGER)
         target_link_libraries(testppc PRIVATE capstone)
+    endif()
+    if (APPLE AND DINGUS_VMNET_FRAMEWORK)
+        target_link_libraries(testppc PRIVATE ${DINGUS_VMNET_FRAMEWORK})
     endif()
 
     enable_testing()
@@ -363,6 +391,9 @@ if (DPPC_BUILD_BENCHMARKS)
     if (DPPC_68K_DEBUGGER)
         target_link_libraries(benchmarks PRIVATE capstone)
     endif()
+    if (APPLE AND DINGUS_VMNET_FRAMEWORK)
+        target_link_libraries(benchmarks PRIVATE ${DINGUS_VMNET_FRAMEWORK})
+    endif()
 endif()
 
 if (DPPC_BUILD_PPC_TESTS)
@@ -373,6 +404,14 @@ if (DPPC_BUILD_PPC_TESTS)
         "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcfloattests.csv"
         "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcdisasmtest.csv"
         $<TARGET_FILE_DIR:${PROJECT_NAME}>)
+    # Also copy test CSVs to testppc binary directory for convenience
+    add_custom_command(
+        TARGET testppc POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+        "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcinttests.csv"
+        "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcfloattests.csv"
+        "${PROJECT_SOURCE_DIR}/cpu/ppc/test/ppcdisasmtest.csv"
+        $<TARGET_FILE_DIR:testppc>)
 endif()
 
 if (DPPC_BUILD_FUZZ)

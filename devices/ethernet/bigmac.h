@@ -25,9 +25,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #define BIG_MAC_H
 
 #include <devices/common/hwcomponent.h>
+#include <utils/net/ether_backend.h>
+#include <cpu/ppc/ppcmmu.h>
 
 #include <cinttypes>
 #include <memory>
+#include <functional>
+#include <deque>
+#include <vector>
+#include <string>
+#include <mutex>
 
 /* Ethernet cell IDs for various MacIO ASICs. */
 enum EthernetCellId : uint8_t {
@@ -154,12 +161,34 @@ public:
         return std::unique_ptr<BigMac>(new BigMac(EthernetCellId::Paddington));
     }
 
+    int device_postinit() override;
+
     // BigMac register accessors
     uint16_t read(uint16_t reg_offset);
     void     write(uint16_t reg_offset, uint16_t value);
 
+    // Backend hooks
+    void set_backend_name(const std::string& name) { backend_name = name; }
+    void set_irq_callback(std::function<void(bool)> cb) { irq_cb = std::move(cb); }
+    void poll_backend();
+    void inject_rx_test_frame(const uint8_t* buf, size_t len);
+    size_t dma_pull_tx(uint32_t addr, size_t len);
+
+    // DBDMA hooks (used by MacIoTwo)
+    void tx_from_host(const uint8_t* buf, size_t len);
+    bool fetch_next_rx_frame(std::vector<uint8_t>& out_frame);
+
+    // Test-only hooks
+    using MmuMapFn = MapDmaResult(*)(uint32_t, uint32_t, bool);
+    static void set_mmu_map_dma_hook(MmuMapFn fn) { mmu_map_dma_hook = fn; }
+    static void disable_timer_for_tests(bool disable) { disable_timer_for_tests_flag = disable; }
+
 protected:
     void chip_reset();
+    bool ensure_backend();
+    void enqueue_rx_frame(const uint8_t* buf, size_t len);
+    uint8_t pop_rx_byte();
+    MacAddr get_mac_from_srom() const;
 
     // MII methods
     bool mii_rcv_value(uint16_t& var, uint8_t num_bits, uint8_t next_bit);
@@ -257,8 +286,26 @@ private:
     uint16_t        srom_address = 0;
     uint8_t         srom_in_bit = 0;
     uint8_t         srom_state = Srom_Start;
+    // Pre-fill with a default MAC in words (big-endian) so guest can fetch from SROM: 02:00:DE:AD:BE:EF
     uint16_t        srom_data[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                     0xDEAD, 0xBEEF, 0xBABE}; // bogus MAC!!!
+                                     0x0200, 0xDEAD, 0xBEEF};
+
+    // Backend state
+    std::string backend_name = "null";
+    std::unique_ptr<EtherBackend> backend;
+    std::function<void(bool)> irq_cb;
+    mutable std::mutex mu_;
+
+    struct RxSlot { std::vector<uint8_t> data; size_t cursor = 0; };
+    std::deque<RxSlot> rxq;
+    uint8_t fifo_fc = 0; // emulate a simple frame counter for now
+
+    // Hook for tests
+    static MmuMapFn mmu_map_dma_hook;
+    static bool disable_timer_for_tests_flag;
+
+    // TODO: consider using last_poll_ns for adaptive poll pacing
+    uint64_t last_poll_ns = 0;
 };
 
 #endif // BIG_MAC_H
