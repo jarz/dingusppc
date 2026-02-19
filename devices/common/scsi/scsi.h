@@ -258,7 +258,13 @@ public:
         return this->last_selection_message;
     }
 
-    void set_xfer_len(uint64_t len) override {}
+    void set_xfer_len(uint64_t len) override {
+        this->xfer_len = len;
+    }
+
+    void set_buffer(uint8_t *bptr) override {
+        this->buf_ptr = bptr;
+    }
 
     void set_more_data_cb(more_data_cb_t cb) override {
         this->read_more_data = cb;
@@ -270,7 +276,7 @@ public:
 
     virtual void notify(ScsiNotification notif_type, int param);
     virtual void next_step();
-    virtual void prepare_xfer(ScsiBus* bus_obj, int& bytes_in, int& bytes_out);
+    virtual void prepare_xfer();
     virtual void switch_phase(const int new_phase) override;
     virtual bool allow_phase_change();
 
@@ -279,7 +285,6 @@ public:
     virtual int  send_data(uint8_t* dst_ptr, int count);
     virtual int  rcv_data(const uint8_t* src_ptr, const int count);
 
-    virtual bool prepare_data() = 0;
     virtual void process_command() = 0;
     virtual void process_message();
 
@@ -295,6 +300,8 @@ protected:
     int         initiator_id;
     int         cur_phase;
     uint8_t*    data_ptr = nullptr;
+    uint8_t*    buf_ptr  = nullptr;
+    int         xfer_len;
     int         data_size;
     int         incoming_size;
     uint8_t     status;
@@ -363,7 +370,6 @@ public:
     bool push_data(const int id, const uint8_t* src_ptr, const int size);
     int  target_xfer_data();
     void target_next_step();
-    bool negotiate_xfer(int& bytes_in, int& bytes_out);
 
 protected:
     void change_bus_phase(int initiator_id);
