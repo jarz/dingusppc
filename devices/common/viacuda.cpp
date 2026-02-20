@@ -581,26 +581,16 @@ void ViaCuda::autopoll_handler() {
         this->do_post_keyboard_state_events = false;
     }
 
-    // Don't send async packets while the host has TIP asserted — that
-    // means an active byte transfer is in progress in either direction.
-    // The real Cuda is single-threaded and would never enter its idle
-    // loop during a transaction.
-    if (!this->old_tip) {
+    // Don't start async packets while a transaction is in progress
+    // or Cuda already has unsent data (TREQ asserted).
+    // Events stay queued in ADB devices until the bus is idle.
+    if (!this->old_tip || !this->treq) {
         return;
     }
 
     uint8_t poll_command = this->autopoll_enabled ? this->adb_bus_obj->poll() : 0;
 
     if (poll_command) {
-        // Autopoll data takes priority over pending async responses.
-        // Cancel any pending TREQ assertion timer from a just-completed
-        // command so the autopoll packet is delivered instead. The host
-        // OS handles this by retrying the aborted command.
-        if (this->treq_timer_id) {
-            TimerManager::get_instance()->cancel_timer(this->treq_timer_id);
-            this->treq_timer_id = 0;
-        }
-
         // prepare autopoll packet
         response_header(CUDA_PKT_ADB, ADB_STAT_OK | ADB_STAT_AUTOPOLL | ADB_STAT_RESPONSE);
         this->out_buf[2] = poll_command; // put the proper ADB command
