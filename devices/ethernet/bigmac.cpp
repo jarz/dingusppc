@@ -48,10 +48,6 @@ int BigMac::device_postinit() {
     return 0;
 }
 
-// Static hooks for tests
-BigMac::MmuMapFn BigMac::mmu_map_dma_hook = nullptr;
-bool BigMac::disable_timer_for_tests_flag = false;
-
 bool bigmac_mac_accepts(const MacAddr& mac, const uint8_t* dst) {
     // broadcast?
     bool broadcast = true;
@@ -75,9 +71,7 @@ bool BigMac::ensure_backend() {
         backend.reset();
         return false;
     }
-    if (!disable_timer_for_tests_flag) {
-        TimerManager::get_instance()->add_cyclic_timer(kBigMacPollIntervalNs, [this]() { this->poll_backend(); });
-    }
+    TimerManager::get_instance()->add_cyclic_timer(kBigMacPollIntervalNs, [this]() { this->poll_backend(); });
     return true;
 }
 
@@ -127,12 +121,7 @@ void BigMac::inject_rx_test_frame(const uint8_t* buf, size_t len) {
 size_t BigMac::dma_pull_tx(uint32_t addr, size_t len) {
     if (!ensure_backend()) return 0;
     if (!len || len > kBigMacMaxFrameLen) len = kBigMacMaxFrameLen;
-    MapDmaResult res{};
-    if (mmu_map_dma_hook) {
-        res = mmu_map_dma_hook(addr, len, false);
-    } else {
-        res = mmu_map_dma_mem(addr, len, false);
-    }
+    MapDmaResult res = mmu_map_dma_mem(addr, len, false);
     if (!res.host_va) return 0;
     tx_from_host(res.host_va, len);
     return len;
@@ -179,7 +168,7 @@ uint16_t BigMac::read(uint16_t reg_offset) {
     case BigMacReg::TX_FIFO_CSR:
         return (this->tx_fifo_enable & 1) | ((((this->tx_fifo_size >> 7) - 1) & 0xFF) << 1);
     case BigMacReg::RX_FIFO_CSR:
-        return (this->tx_fifo_enable & 1) | ((((this->tx_fifo_size >> 7) - 1) & 0xFF) << 1);
+        return (this->rx_fifo_enable & 1) | ((((this->rx_fifo_size >> 7) - 1) & 0xFF) << 1);
     case BigMacReg::TX_PNTR:
         return this->tx_ptr;
     case BigMacReg::RX_PNTR:
@@ -353,6 +342,12 @@ void BigMac::write(uint16_t reg_offset, uint16_t value) {
     case BigMacReg::TX_CONFIG:
         this->tx_config = value;
         break;
+    case BigMacReg::TX_MAX:
+        this->tx_max = value;
+        break;
+    case BigMacReg::TX_MIN:
+        this->tx_min = value;
+        break;
     case BigMacReg::NC_CNT:
         this->norm_coll_cnt = value;
         break;
@@ -486,7 +481,7 @@ void BigMac::mii_rcv_bit() {
             --this->mii_bit_counter;
             this->mii_in_bit = (this->mii_data >> this->mii_bit_counter) & 1;
             if (!this->mii_bit_counter) {
-                this->mii_state = MII_FRAME_SM::Preamble;
+                this->mii_reset();
             }
         } else { // out of sync (shouldn't happen)
             this->mii_reset();
@@ -571,7 +566,7 @@ void BigMac::mii_xmit_bit(const uint8_t bit_val) {
             LOG_F(9, "%s: MII data received = 0x%X", this->name.c_str(),
                   this->mii_data);
             this->phy_reg_write(this->mii_reg_address, this->mii_data);
-            this->mii_state = MII_FRAME_SM::Stop;
+            this->mii_reset();
         }
         break;
     case MII_FRAME_SM::Stop:

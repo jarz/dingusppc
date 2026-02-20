@@ -50,6 +50,7 @@ if (EMSCRIPTEN)
 endif()
 
 option(DPPC_BUILD_PPC_TESTS  "Build PowerPC tests" OFF)
+option(DPPC_BUILD_NET_TESTS  "Build networking tests" OFF)
 option(DPPC_BUILD_BENCHMARKS "Build benchmarking programs" OFF)
 option(DPPC_BUILD_FUZZ       "Build fuzz targets (requires Clang and libFuzzer)" OFF)
 
@@ -307,6 +308,40 @@ if (DPPC_BUILD_CUDA_TESTS)
     endif()
 
     add_test(NAME testcuda COMMAND testcuda)
+endif()
+
+option(DPPC_BUILD_NET_TESTS "Build networking tests" OFF)
+
+if (DPPC_BUILD_NET_TESTS)
+    file(GLOB NET_TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/net/*.cpp")
+    add_executable(testnet ${NET_TEST_SOURCES} $<TARGET_OBJECTS:core>
+                                               $<TARGET_OBJECTS:cpu_ppc>
+                                               $<TARGET_OBJECTS:debugger>
+                                               $<TARGET_OBJECTS:devices>
+                                               $<TARGET_OBJECTS:machines>
+                                               $<TARGET_OBJECTS:utils>
+                                               $<TARGET_OBJECTS:loguru>)
+                                               $<TARGET_OBJECTS:machines>
+                                               $<TARGET_OBJECTS:utils>
+                                               $<TARGET_OBJECTS:loguru>)
+
+    if (WIN32)
+        target_link_libraries(testnet PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(testnet PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(testnet PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(testnet PRIVATE capstone)
+    endif()
+    if (APPLE AND DINGUS_VMNET_FRAMEWORK)
+        target_link_libraries(testnet PRIVATE ${DINGUS_VMNET_FRAMEWORK})
+    endif()
+
+    enable_testing()
+    add_test(NAME testnet COMMAND testnet WORKING_DIRECTORY $<TARGET_FILE_DIR:testnet>)
 endif()
 
 option(DPPC_BUILD_THREAD_TESTS "Build thread safety tests" OFF)

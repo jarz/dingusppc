@@ -34,6 +34,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <cstring>
 #include <loguru.hpp>
 
+MapDmaResult DMAChannel::map_dma_mem(uint32_t addr, uint32_t size, bool allow_mmio) {
+    return mmu_map_dma_mem(addr, size, allow_mmio);
+}
+
 void DMAChannel::set_callbacks(DbdmaCallback start_cb, DbdmaCallback stop_cb) {
     // Must be called during initialization only, before any thread uses
     // the channel.  No lock required (single-threaded setup phase).
@@ -50,7 +54,7 @@ void DMAChannel::set_data_callbacks(DbdmaCallback in_cb, DbdmaCallback out_cb, D
 
 /* Load DMACmd from physical memory. */
 DMACmd* DMAChannel::fetch_cmd(uint32_t cmd_addr, DMACmd* p_cmd, bool *is_writable) {
-    MapDmaResult res = mmu_map_dma_mem(cmd_addr, 16, false);
+    MapDmaResult res = this->map_dma_mem(cmd_addr, 16, false);
     if (is_writable) *is_writable = res.is_writable;
     DMACmd* cmd_host = (DMACmd*)res.host_va;
     p_cmd->req_count = READ_WORD_LE_A(&cmd_host->req_count);
@@ -93,7 +97,7 @@ uint8_t DMAChannel::interpret_cmd() {
         }
         this->queue_len = cmd_struct.req_count;
         if (this->queue_len) {
-            res = mmu_map_dma_mem(cmd_struct.address, cmd_struct.req_count, false);
+            res = this->map_dma_mem(cmd_struct.address, cmd_struct.req_count, false);
             this->queue_data = res.host_va;
             this->res_count  = 0;
             this->cmd_in_progress = true;
@@ -151,7 +155,7 @@ void DMAChannel::finish_cmd() {
     bool   branch_taken = false;
 
     // obtain real pointer to the descriptor of the command to be finished
-    MapDmaResult res  = mmu_map_dma_mem(this->cmd_ptr, 16, false);
+    MapDmaResult res  = this->map_dma_mem(this->cmd_ptr, 16, false);
     uint8_t *cmd_desc = res.host_va;
 
     // get command code
@@ -209,13 +213,12 @@ void DMAChannel::finish_cmd() {
         this->res_count = 0;
     }
 
-    if (this->cur_cmd < DBDMA_Cmd::STOP && !branch_taken)
-        this->cmd_ptr += 16;
-
-    // use the interrupt bits saved before cmd_ptr was advanced or branched
     if (this->cur_cmd < DBDMA_Cmd::STOP) {
         this->update_irq(saved_cmd_bits);
     }
+
+    if (this->cur_cmd < DBDMA_Cmd::STOP && !branch_taken)
+        this->cmd_ptr += 16;
 
     this->cmd_in_progress = false;
 }
@@ -241,7 +244,7 @@ void DMAChannel::xfer_quad(const DMACmd *cmd_desc, DMACmd *cmd_host) {
         addr &= ~(xfer_size - 1);
     }
 
-    res = mmu_map_dma_mem(addr, xfer_size, true);
+    res = this->map_dma_mem(addr, xfer_size, true);
 
     // prepare data pointers and perform data transfer
     if (!cmd_host) {
@@ -279,10 +282,11 @@ void DMAChannel::xfer_quad(const DMACmd *cmd_desc, DMACmd *cmd_host) {
 }
 
 void DMAChannel::update_irq() {
-    // For abort path (called from reg_write when RUN is cleared): cmd_ptr still
-    // points to the current command, so reading from it is correct here.
-    MapDmaResult res = mmu_map_dma_mem(this->cmd_ptr, 16, false);
-    this->update_irq(res.host_va[2]);
+    // obtain real pointer to the descriptor of the completed command
+    MapDmaResult res = this->map_dma_mem(this->cmd_ptr, 16, false);
+    uint8_t *cmd_desc = res.host_va;
+
+    this->update_irq(cmd_desc[2]);
 }
 
 void DMAChannel::update_irq(uint8_t cmd_bits) {
