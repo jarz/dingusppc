@@ -32,6 +32,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include <cinttypes>
 #include <memory>
+#include <vector>
 
 NvramDev::NvramDev(NvramAddrHiDev *addr_hi) {
     // NVRAM connection
@@ -123,9 +124,38 @@ GrandCentral::GrandCentral() : PCIDevice("mac-io_grandcentral"), InterruptCtrl()
     this->enet_tx_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_ETHERNET_Tx));
     this->enet_rx_dma = std::unique_ptr<DMAChannel> (new DMAChannel("mace_enet_rx"));
     this->enet_rx_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_ETHERNET_Rx));
-    this->enet_tx_dma->connect(this->mace);
-    this->enet_rx_dma->connect(this->mace);
-    this->mace->connect(this->enet_rx_dma.get());
+    if (this->mace) {
+        try { this->mace->set_backend_name(GET_STR_PROP("net_backend")); } catch (...) {}
+
+        this->enet_tx_dma->set_callbacks([]() {}, []() {});
+        this->enet_tx_dma->set_data_callbacks(
+            nullptr,
+            [this]() {
+                if (!this->mace) return;
+                uint32_t avail_len = 0; uint8_t* p_data = nullptr;
+                this->enet_tx_dma->pull_data(1600, &avail_len, &p_data);
+                if (avail_len && p_data) {
+                    this->mace->tx_from_host(p_data, avail_len);
+                }
+                this->enet_tx_dma->end_pull_data();
+            },
+            nullptr);
+
+        this->enet_rx_dma->set_callbacks([]() {}, []() {});
+        this->enet_rx_dma->set_data_callbacks(
+            [this]() {
+                if (!this->mace) return;
+                this->mace->poll_backend();
+                std::vector<uint8_t> frame;
+                if (this->mace->fetch_next_rx_frame(frame)) {
+                    this->enet_rx_dma->push_data(
+                        reinterpret_cast<char*>(frame.data()),
+                        static_cast<int>(frame.size()));
+                    this->enet_rx_dma->end_push_data();
+                }
+            },
+            nullptr, nullptr);
+    }
 
     // connect floppy disk HW
     this->swim3 = dynamic_cast<Swim3::Swim3Ctrl*>(gMachineObj->get_comp_by_name("Swim3"));

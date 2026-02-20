@@ -305,6 +305,7 @@ static PATResult page_address_translation(uint32_t la, bool is_instr_fetch,
     };
 }
 
+__attribute__((weak))
 MapDmaResult mmu_map_dma_mem(uint32_t addr, uint32_t size, bool allow_mmio) {
     MMIODevice      *devobj  = nullptr;
     uint8_t         *host_va = nullptr;

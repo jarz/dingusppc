@@ -65,6 +65,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #define DB_DMA_H
 
 #include <devices/common/dmacore.h>
+#include <cpu/ppc/ppcmmu.h>
 
 #include <cinttypes>
 #include <functional>
@@ -172,6 +173,7 @@ public:
     }
 
 protected:
+    MapDmaResult map_dma_mem(uint32_t addr, uint32_t size, bool allow_mmio);
     DMACmd* fetch_cmd(uint32_t cmd_addr, DMACmd* p_cmd, bool *is_writable);
     uint8_t interpret_cmd(void);
     void finish_cmd();

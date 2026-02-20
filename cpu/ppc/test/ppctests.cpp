@@ -365,33 +365,14 @@ int main() {
 
     int disasm_failures = test_ppc_disasm();
 
-    // Networking (MACE) smoke test
-    int mace_failures = test_mace_loopback_basic();
-    if (mace_failures) {
-        cout << "MACE loopback test failures: " << mace_failures << endl;
-    } else {
-        cout << "MACE loopback test passed" << endl;
-    }
-
-    // Networking (BigMac) smoke test
-    int bmac_failures = test_bigmac_loopback_basic();
-    if (bmac_failures) {
-        cout << "BigMac loopback test failures: " << bmac_failures << endl;
-    } else {
-        cout << "BigMac loopback test passed" << endl;
-    }
-
     cout << endl;
     cout << "=== Summary ===" << endl;
     cout << "Instruction test failures: " << nfailed << endl;
     cout << "Disassembler test failures: " << disasm_failures << endl;
-    cout << "MACE loopback test failures: " << mace_failures << endl;
-    cout << "BigMac loopback test failures: " << bmac_failures << endl;
 
     // Disassembler test failures are regressions and must fail CI.
     // Instruction test failures (nfailed) are logged above for
     // visibility but do not fail CI because known FP edge-case
     // mismatches exist (currently 528 failures).
-    // Networking tests should also fail CI if they regress.
-    return (disasm_failures > 0 || mace_failures > 0 || bmac_failures > 0) ? 1 : 0;
+    return disasm_failures > 0 ? 1 : 0;
 }

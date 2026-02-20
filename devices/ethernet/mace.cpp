@@ -45,10 +45,6 @@ enum : uint8_t {
 };
 }
 
-// Static hook for tests (defined outside anonymous namespace)
-MaceController::MmuMapFn MaceController::mmu_map_dma_hook = nullptr;
-bool MaceController::disable_timer_for_tests_flag = false;
-
 int MaceController::device_postinit() {
     // Backend selection via machine property
     try {
@@ -81,10 +77,7 @@ bool MaceController::ensure_backend() {
         backend.reset();
         return false;
     }
-    if (!disable_timer_for_tests_flag) {
-        // Register poll timer
-        TimerManager::get_instance()->add_cyclic_timer(kPollIntervalNs, [this]() { this->poll_backend(); });
-    }
+    TimerManager::get_instance()->add_cyclic_timer(kPollIntervalNs, [this]() { this->poll_backend(); });
     LOG_F(INFO, "%s: backend '%s' initialized, mac=%02X:%02X:%02X:%02X:%02X:%02X", name.c_str(), backend_name.c_str(),
           mac.bytes[0], mac.bytes[1], mac.bytes[2], mac.bytes[3], mac.bytes[4], mac.bytes[5]);
     return true;
@@ -135,7 +128,7 @@ uint8_t MaceController::read(uint8_t reg_offset)
     case MaceReg::FIFO_Config:
         return this->fifo_ctrl;
     case MaceReg::MAC_Config_Ctrl:
-        return this->mac_cc;
+        return this->mac_cfg;
     case MaceReg::PLS_Config_Ctrl:
         return this->pls_cc;
     case MaceReg::PHY_Config_Ctrl:
@@ -146,6 +139,18 @@ uint8_t MaceController::read(uint8_t reg_offset)
         return (this->chip_id >> 8) & 0xFFU;
     case MaceReg::Int_Addr_Config:
         return this->addr_cfg;
+    case MaceReg::Phys_Addr:
+        if (this->addr_cfg & IAC_PHYADDR) {
+            if (this->addr_ptr < 6) {
+                uint8_t b = mac.bytes[this->addr_ptr];
+                if (++this->addr_ptr >= 6) {
+                    this->addr_cfg &= ~IAC_PHYADDR;
+                    this->addr_ptr = 0;
+                }
+                return b;
+            }
+        }
+        return 0;
     case MaceReg::Missed_Pkt_Cnt:
         return this->missed_pkts;
     default:
@@ -189,6 +194,7 @@ void MaceController::write(uint8_t reg_offset, uint8_t value)
         if (value != 7)
             LOG_F(WARNING, "%s: unsupported transceiver interface 0x%X in PLSCC",
                   this->name.c_str(), value);
+        this->pls_cc = value;
         break;
     case MaceReg::Int_Addr_Config:
         if ((value & IAC_LOGADDR) && (value & IAC_PHYADDR))
@@ -229,12 +235,7 @@ size_t MaceController::dma_pull_tx(uint32_t addr, size_t max_len) {
     if (!ensure_backend()) return 0;
     if (!max_len || max_len > kMaxFrameLen) max_len = kMaxFrameLen;
 
-    MapDmaResult res{};
-    if (mmu_map_dma_hook) {
-        res = mmu_map_dma_hook(addr, max_len, false);
-    } else {
-        res = mmu_map_dma_mem(addr, max_len, false);
-    }
+    MapDmaResult res = mmu_map_dma_mem(addr, max_len, false);
     if (!res.host_va) {
         LOG_F(ERROR, "%s: dma_pull_tx failed to map addr=0x%X len=%zu", name.c_str(), addr, max_len);
         return 0;
@@ -258,6 +259,25 @@ size_t MaceController::dma_pull_tx(uint32_t addr, size_t max_len) {
         if (irq_cb) irq_cb(true);
     }
     return max_len;
+}
+
+void MaceController::tx_from_host(const uint8_t* buf, size_t len) {
+    if (!ensure_backend()) return;
+    std::string err;
+    {
+        std::lock_guard<std::mutex> _{mu_};
+        if (!backend || !backend->send(buf, len, err)) {
+            LOG_F(ERROR, "%s: backend send failed: %s", name.c_str(), err.c_str());
+            xmt_fs |= 0x80;
+            int_stat |= INT_ERR;
+        } else {
+            xmt_fs = 0;
+            int_stat |= INT_TX;
+        }
+    }
+    if (int_stat & int_mask) {
+        if (irq_cb) irq_cb(true);
+    }
 }
 
 bool MaceController::mac_accepts(const uint8_t* buf, size_t len) const {
@@ -298,6 +318,16 @@ void MaceController::enqueue_rx_frame(const uint8_t* buf, size_t len) {
 void MaceController::inject_rx_test_frame(const uint8_t* buf, size_t len) {
     enqueue_rx_frame(buf, len);
 }
+
+bool MaceController::fetch_next_rx_frame(std::vector<uint8_t>& out_frame) {
+    std::lock_guard<std::mutex> _{mu_};
+    if (rxq.empty()) return false;
+    out_frame = rxq.front().data;
+    rxq.pop_front();
+    if (fifo_fc) --fifo_fc;
+    return true;
+}
+
 void MaceController::poll_backend() {
     if (!ensure_backend()) return;
     uint8_t buf[kMaxFrameLen];

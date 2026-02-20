@@ -26,7 +26,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include <devices/common/hwcomponent.h>
 #include <utils/net/ether_backend.h>
-#include <cpu/ppc/ppcmmu.h>
 
 #include <cinttypes>
 #include <memory>
@@ -169,6 +168,10 @@ public:
 
     // Backend hooks
     void set_backend_name(const std::string& name) { backend_name = name; }
+    void set_backend_for_test(std::unique_ptr<EtherBackend> be) {
+        std::lock_guard<std::mutex> _{mu_};
+        backend = std::move(be);
+    }
     void set_irq_callback(std::function<void(bool)> cb) { irq_cb = std::move(cb); }
     void poll_backend();
     void inject_rx_test_frame(const uint8_t* buf, size_t len);
@@ -178,10 +181,6 @@ public:
     void tx_from_host(const uint8_t* buf, size_t len);
     bool fetch_next_rx_frame(std::vector<uint8_t>& out_frame);
 
-    // Test-only hooks
-    using MmuMapFn = MapDmaResult(*)(uint32_t, uint32_t, bool);
-    static void set_mmu_map_dma_hook(MmuMapFn fn) { mmu_map_dma_hook = fn; }
-    static void disable_timer_for_tests(bool disable) { disable_timer_for_tests_flag = disable; }
 
 protected:
     void chip_reset();
@@ -299,10 +298,6 @@ private:
     struct RxSlot { std::vector<uint8_t> data; size_t cursor = 0; };
     std::deque<RxSlot> rxq;
     uint8_t fifo_fc = 0; // emulate a simple frame counter for now
-
-    // Hook for tests
-    static MmuMapFn mmu_map_dma_hook;
-    static bool disable_timer_for_tests_flag;
 
     // TODO: consider using last_poll_ns for adaptive poll pacing
     uint64_t last_poll_ns = 0;
