@@ -93,12 +93,12 @@ static void setup_ram_slot(std::string name, int i2c_addr, int capacity_megs) {
     if (!capacity_megs)
         return;
 
-    gMachineObj->add_device(name, std::unique_ptr<SpdSdram168>(new SpdSdram168(i2c_addr)));
-    SpdSdram168* ram_dimm = dynamic_cast<SpdSdram168*>(gMachineObj->get_comp_by_name(name));
+    get_machine()->add_device(name, std::unique_ptr<SpdSdram168>(new SpdSdram168(i2c_addr)));
+    SpdSdram168* ram_dimm = dynamic_cast<SpdSdram168*>(get_machine()->get_comp_by_name(name));
     ram_dimm->set_capacity(capacity_megs);
 
     // register RAM DIMM with the I2C bus
-    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(gMachineObj->get_comp_by_type(HWCompType::I2C_HOST));
+    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(get_machine()->get_comp_by_type(HWCompType::I2C_HOST));
     i2c_bus->register_device(i2c_addr, ram_dimm);
 }
 
@@ -119,7 +119,7 @@ int MachineGossamer::initialize(const std::string &id) {
     LOG_F(INFO, "Building machine Gossamer...");
 
     // get pointer to the memory controller/PCI host bridge object
-    MPC106* grackle_obj = dynamic_cast<MPC106*>(gMachineObj->get_comp_by_name("Grackle"));
+    MPC106* grackle_obj = dynamic_cast<MPC106*>(get_machine()->get_comp_by_name("Grackle"));
     grackle_obj->set_irq_map(grackle_irq_map);
 
     // configure the Gossamer system register
@@ -130,9 +130,9 @@ int MachineGossamer::initialize(const std::string &id) {
                         | (BUS_FREQ_66P82 << BUS_SPEED_POS) // set bus frequency
                         | UNKNOWN_BIT_0; // pull up bit 0
 
-    gMachineObj->add_device("MachineID", std::unique_ptr<GossamerID>(new GossamerID(sys_reg)));
+    get_machine()->add_device("MachineID", std::unique_ptr<GossamerID>(new GossamerID(sys_reg)));
     grackle_obj->add_mmio_region(
-        0xFF000000, 4096, dynamic_cast<MMIODevice*>(gMachineObj->get_comp_by_name("MachineID")));
+        0xFF000000, 4096, dynamic_cast<MMIODevice*>(get_machine()->get_comp_by_name("MachineID")));
 
     // allocate ROM region
     if (!grackle_obj->add_rom_region(0xFFC00000, 0x400000)) {
@@ -147,16 +147,16 @@ int MachineGossamer::initialize(const std::string &id) {
 
     // add pci devices
     grackle_obj->pci_register_device(
-        DEV_FUN(0x10,0), dynamic_cast<PCIDevice*>(gMachineObj->get_comp_by_name("Heathrow")));
+        DEV_FUN(0x10,0), dynamic_cast<PCIDevice*>(get_machine()->get_comp_by_name("Heathrow")));
 
     // add Athens clock generator device and register it with the I2C host
-    gMachineObj->add_device("Athens", std::unique_ptr<AthensClocks>(new AthensClocks(0x28)));
-    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(gMachineObj->get_comp_by_type(HWCompType::I2C_HOST));
-    i2c_bus->register_device(0x28, dynamic_cast<I2CDevice*>(gMachineObj->get_comp_by_name("Athens")));
+    get_machine()->add_device("Athens", std::unique_ptr<AthensClocks>(new AthensClocks(0x28)));
+    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(get_machine()->get_comp_by_type(HWCompType::I2C_HOST));
+    i2c_bus->register_device(0x28, dynamic_cast<I2CDevice*>(get_machine()->get_comp_by_name("Athens")));
 
     // create ID EEPROM for the Whisper personality card and register it with the I2C host
-    gMachineObj->add_device("Perch", std::unique_ptr<I2CProm>(new I2CProm(0x53, 256)));
-    I2CProm* perch_id = dynamic_cast<I2CProm*>(gMachineObj->get_comp_by_name("Perch"));
+    get_machine()->add_device("Perch", std::unique_ptr<I2CProm>(new I2CProm(0x53, 256)));
+    I2CProm* perch_id = dynamic_cast<I2CProm*>(get_machine()->get_comp_by_name("Perch"));
     perch_id->fill_memory(0, 256, 0);
     perch_id->fill_memory(32, 223, 0xFF);
     perch_id->set_memory(0, WhisperID, sizeof(WhisperID));

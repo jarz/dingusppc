@@ -87,7 +87,7 @@ void Swim3Ctrl::reset()
 int Swim3Ctrl::device_postinit()
 {
     this->int_ctrl = dynamic_cast<InterruptCtrl*>(
-        gMachineObj->get_comp_by_type(HWCompType::INT_CTRL));
+        get_machine()->get_comp_by_type(HWCompType::INT_CTRL));
     this->irq_id = this->int_ctrl->register_dev_int(IntSrc::SWIM3);
 
     // if a floppy image was given "insert" it into the virtual superdrive

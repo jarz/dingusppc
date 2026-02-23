@@ -52,6 +52,9 @@ private:
     std::map<std::string, std::unique_ptr<HWComponent>> device_map;
 };
 
-extern std::unique_ptr<MachineBase> gMachineObj;
+/** Accessor functions for the global machine instance. */
+MachineBase* get_machine();
+void set_machine(std::unique_ptr<MachineBase> machine);
+void release_machine();
 
 #endif /* MACHINE_BASE_H */

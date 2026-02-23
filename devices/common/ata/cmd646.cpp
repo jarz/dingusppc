@@ -49,11 +49,11 @@ CmdIdeCtrl::CmdIdeCtrl() : PCIDevice("cmd-ide") {
         this->notify_bar_change(bar_num);
     };
 
-    gMachineObj->add_device("CmdAta0", std::unique_ptr<IdeChannel>(new IdeChannel("CmdAta0")));
-    gMachineObj->add_device("CmdAta1", std::unique_ptr<IdeChannel>(new IdeChannel("CmdAta1")));
+    get_machine()->add_device("CmdAta0", std::unique_ptr<IdeChannel>(new IdeChannel("CmdAta0")));
+    get_machine()->add_device("CmdAta1", std::unique_ptr<IdeChannel>(new IdeChannel("CmdAta1")));
 
-    this->ch0 = dynamic_cast<IdeChannel*>(gMachineObj->get_comp_by_name("CmdAta0"));
-    this->ch1 = dynamic_cast<IdeChannel*>(gMachineObj->get_comp_by_name("CmdAta1"));
+    this->ch0 = dynamic_cast<IdeChannel*>(get_machine()->get_comp_by_name("CmdAta0"));
+    this->ch1 = dynamic_cast<IdeChannel*>(get_machine()->get_comp_by_name("CmdAta1"));
 
     this->ch0->set_irq_callback([this](const uint8_t intrq_state) {
         LOG_F(INFO, "CmdAta0 INTRQ updated to %d", intrq_state);

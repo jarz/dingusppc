@@ -47,7 +47,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using namespace std;
 
-map<string, unique_ptr<BasicProperty>> gMachineSettings;
+static map<string, unique_ptr<BasicProperty>> gMachineSettings;
+
+map<string, unique_ptr<BasicProperty>>& get_machine_settings() {
+    return gMachineSettings;
+}
 
 static const map<string, string> PropHelp = {
     {"rambank1_size",   "specifies RAM bank 1 size in MB"},
@@ -146,7 +150,7 @@ void MachineFactory::create_device(string& dev_name, DeviceDescription& dev)
         create_device(subdev_name, DeviceRegistry::get_descriptor(subdev_name));
     }
 
-    gMachineObj->add_device(dev_name, dev.m_create_func());
+    get_machine()->add_device(dev_name, dev.m_create_func());
 }
 
 int MachineFactory::create(string& mach_id)
@@ -160,22 +164,22 @@ int MachineFactory::create(string& mach_id)
     LOG_F(INFO, "Initializing %s hardware...", it->second.description.c_str());
 
     // initialize global machine object
-    gMachineObj.reset(new MachineBase(it->second.name));
+    set_machine(std::make_unique<MachineBase>(it->second.name));
 
     // create and register sound server
-    gMachineObj->add_device("SoundServer", std::unique_ptr<SoundServer>(new SoundServer()));
+    get_machine()->add_device("SoundServer", std::unique_ptr<SoundServer>(new SoundServer()));
 
     // recursively create device objects
     create_device(it->second.machine_root, DeviceRegistry::get_descriptor(it->second.machine_root));
 
-    if (!gMachineObj->get_comp_by_name(it->second.machine_root)) {
+    if (!get_machine()->get_comp_by_name(it->second.machine_root)) {
         LOG_F(ERROR, "Machine initialization function failed!");
-        gMachineObj->clear_devices();
+        get_machine()->clear_devices();
         return -1;
     }
 
     // post-initialize all devices
-    if (gMachineObj->postinit_devices()) {
+    if (get_machine()->postinit_devices()) {
         LOG_F(ERROR, "Could not post-initialize devices!");
         return -1;
     }
@@ -590,7 +594,7 @@ int MachineFactory::load_boot_rom(char *rom_data, size_t rom_size) {
 
     if (!result) {
         MemCtrlBase* mem_ctrl = dynamic_cast<MemCtrlBase*>(
-            gMachineObj->get_comp_by_type(HWCompType::MEM_CTRL));
+            get_machine()->get_comp_by_type(HWCompType::MEM_CTRL));
 
         if ((/*rom_reg = */mem_ctrl->find_rom_region())) {
             mem_ctrl->set_data(rom_load_addr, (uint8_t*)rom_data, (uint32_t)rom_size);

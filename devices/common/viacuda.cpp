@@ -76,7 +76,7 @@ ViaCuda::ViaCuda() : I2CBus() {
     this->pram_obj = std::unique_ptr<NVram> (new NVram("pram.bin", 256));
 
     // establish ADB bus connection
-    this->adb_bus_obj = dynamic_cast<AdbBus*>(gMachineObj->get_comp_by_type(HWCompType::ADB_HOST));
+    this->adb_bus_obj = dynamic_cast<AdbBus*>(get_machine()->get_comp_by_type(HWCompType::ADB_HOST));
 
     // autopoll handler will be called during post-processing of the host events
     EventManager::get_instance()->add_post_handler(this, &ViaCuda::autopoll_handler);
@@ -120,7 +120,7 @@ ViaCuda::~ViaCuda()
 int ViaCuda::device_postinit()
 {
     this->int_ctrl = dynamic_cast<InterruptCtrl*>(
-        gMachineObj->get_comp_by_type(HWCompType::INT_CTRL));
+        get_machine()->get_comp_by_type(HWCompType::INT_CTRL));
     this->irq_id = this->int_ctrl->register_dev_int(IntSrc::VIA_CUDA);
 
     return 0;

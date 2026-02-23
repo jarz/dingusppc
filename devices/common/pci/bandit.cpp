@@ -300,7 +300,7 @@ Bandit::Bandit(int bridge_num, std::string name, int dev_id, int rev)
     this->base_addr = 0xF0000000 + ((bridge_num & 3) << 25);
 
     MemCtrlBase *mem_ctrl = dynamic_cast<MemCtrlBase *>
-                           (gMachineObj->get_comp_by_type(HWCompType::MEM_CTRL));
+                           (get_machine()->get_comp_by_type(HWCompType::MEM_CTRL));
 
     // add memory mapped I/O region for Bandit control registers
     // This region has the following layout:
@@ -325,7 +325,7 @@ Chaos::Chaos(std::string name) : BanditHost(0)
     supports_types(HWCompType::PCI_HOST);
 
     MemCtrlBase *mem_ctrl = dynamic_cast<MemCtrlBase *>
-                           (gMachineObj->get_comp_by_type(HWCompType::MEM_CTRL));
+                           (get_machine()->get_comp_by_type(HWCompType::MEM_CTRL));
 
     // add memory mapped I/O region for Chaos control registers
     // This region has the following layout:
@@ -342,7 +342,7 @@ AspenPci::AspenPci(std::string name) : BanditHost(1) {
     this->is_aspen = true;
 
     MemCtrlBase *mem_ctrl = dynamic_cast<MemCtrlBase *>
-    (gMachineObj->get_comp_by_type(HWCompType::MEM_CTRL));
+    (get_machine()->get_comp_by_type(HWCompType::MEM_CTRL));
 
     // add memory mapped I/O region for Aspen PCI control registers
     // This region has the following layout:

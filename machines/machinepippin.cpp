@@ -51,15 +51,15 @@ public:
 int MachinePippin::initialize(const std::string &id) {
     LOG_F(INFO, "Building machine Pippin...");
 
-    PCIHost *pci_host = dynamic_cast<PCIHost*>(gMachineObj->get_comp_by_name("AspenPci1"));
+    PCIHost *pci_host = dynamic_cast<PCIHost*>(get_machine()->get_comp_by_name("AspenPci1"));
     pci_host->set_irq_map(aspen_irq_map);
 
     // connect GrandCentral I/O controller to the PCI1 bus
     pci_host->pci_register_device(DEV_FUN(0x10,0),
-        dynamic_cast<GrandCentral*>(gMachineObj->get_comp_by_name("GrandCentralTnt")));
+        dynamic_cast<GrandCentral*>(get_machine()->get_comp_by_name("GrandCentralTnt")));
 
     // get (raw) pointer to the memory controller
-    AspenCtrl* aspen_obj = dynamic_cast<AspenCtrl*>(gMachineObj->get_comp_by_name("Aspen"));
+    AspenCtrl* aspen_obj = dynamic_cast<AspenCtrl*>(get_machine()->get_comp_by_name("Aspen"));
 
     // allocate ROM region
     if (!aspen_obj->add_rom_region(0xFFC00000, 0x400000)) {

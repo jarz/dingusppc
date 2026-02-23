@@ -49,7 +49,7 @@ int AdbBus::device_postinit() {
             continue; // don't register a second ADB bus
 
         if (DeviceRegistry::device_registered(dev_name)) {
-            gMachineObj->add_device(dev_name, DeviceRegistry::get_descriptor(dev_name).m_create_func());
+            get_machine()->add_device(dev_name, DeviceRegistry::get_descriptor(dev_name).m_create_func());
         } else {
             LOG_F(WARNING, "Unknown specified ADB device \"%s\"", adb_device.c_str());
         }

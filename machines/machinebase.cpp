@@ -27,7 +27,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <set>
 #include <string>
 
-std::unique_ptr<MachineBase> gMachineObj = 0;
+static std::unique_ptr<MachineBase> gMachineObj;
+
+MachineBase* get_machine() {
+    return gMachineObj.get();
+}
+
+void set_machine(std::unique_ptr<MachineBase> machine) {
+    gMachineObj = std::move(machine);
+}
+
+void release_machine() {
+    gMachineObj.reset();
+}
 
 MachineBase::MachineBase(std::string name) {
     this->name = name;

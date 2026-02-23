@@ -33,7 +33,7 @@ AdbDevice::AdbDevice(std::string name) {
 
 int AdbDevice::device_postinit() {
     // register itself with the ADB host
-    this->host_obj = dynamic_cast<AdbBus*>(gMachineObj->get_comp_by_type(HWCompType::ADB_HOST));
+    this->host_obj = dynamic_cast<AdbBus*>(get_machine()->get_comp_by_type(HWCompType::ADB_HOST));
     this->host_obj->register_device(this);
 
     return 0;

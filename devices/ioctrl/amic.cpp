@@ -52,7 +52,7 @@ AMIC::AMIC() : MMIODevice()
     supports_types(HWCompType::MMIO_DEV | HWCompType::INT_CTRL);
 
     // connect internal SCSI controller
-    this->scsi = dynamic_cast<Sc53C94*>(gMachineObj->get_comp_by_name("Sc53C94"));
+    this->scsi = dynamic_cast<Sc53C94*>(get_machine()->get_comp_by_name("Sc53C94"));
     this->curio_dma = std::unique_ptr<AmicScsiDma> (new AmicScsiDma());
     this->curio_dma->connect(this->scsi);
     this->scsi->connect(this->curio_dma.get());
@@ -65,15 +65,15 @@ AMIC::AMIC() : MMIODevice()
     });
 
     // connect serial HW
-    this->escc = dynamic_cast<EsccController*>(gMachineObj->get_comp_by_name("Escc"));
+    this->escc = dynamic_cast<EsccController*>(get_machine()->get_comp_by_name("Escc"));
     this->escc_xmit_b_dma = std::unique_ptr<AmicSerialXmitDma>(new AmicSerialXmitDma("EsccBXmit"));
     this->escc_xmit_a_dma = std::unique_ptr<AmicSerialXmitDma>(new AmicSerialXmitDma("EsccAXmit"));
 
     // connect Ethernet HW
-    this->mace = dynamic_cast<MaceController*>(gMachineObj->get_comp_by_name("Mace"));
+    this->mace = dynamic_cast<MaceController*>(get_machine()->get_comp_by_name("Mace"));
 
     // connect Cuda
-    this->viacuda = dynamic_cast<ViaCuda*>(gMachineObj->get_comp_by_name("ViaCuda"));
+    this->viacuda = dynamic_cast<ViaCuda*>(get_machine()->get_comp_by_name("ViaCuda"));
 
     // initialize sound HW
     this->snd_out_dma = std::unique_ptr<AmicSndOutDma>(new AmicSndOutDma());
@@ -87,7 +87,7 @@ AMIC::AMIC() : MMIODevice()
     this->def_vid->init_interrupts(this, SLOT_INT_VBL << 16);
 
     // initialize floppy disk HW
-    this->swim3 = dynamic_cast<Swim3::Swim3Ctrl*>(gMachineObj->get_comp_by_name("Swim3"));
+    this->swim3 = dynamic_cast<Swim3::Swim3Ctrl*>(get_machine()->get_comp_by_name("Swim3"));
     this->floppy_dma = std::unique_ptr<AmicFloppyDma> (new AmicFloppyDma());
     this->swim3->set_dma_channel(this->floppy_dma.get());
 }
@@ -103,7 +103,7 @@ AMIC::~AMIC()
 int AMIC::device_postinit()
 {
     MemCtrlBase *mem_ctrl = dynamic_cast<MemCtrlBase *>
-                           (gMachineObj->get_comp_by_type(HWCompType::MEM_CTRL));
+                           (get_machine()->get_comp_by_type(HWCompType::MEM_CTRL));
 
     // add memory mapped I/O region for the AMIC control registers
     if (!mem_ctrl->add_mmio_region(0x50F00000, 0x00040000, this)) {

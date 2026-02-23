@@ -42,23 +42,23 @@ Sixty6Video::Sixty6Video()
     this->saa7187 = std::unique_ptr<Saa7187VideoEncoder> (new Saa7187VideoEncoder(0x44));
 
     // register the video clock generator with the I2C host
-    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(gMachineObj->get_comp_by_type(HWCompType::I2C_HOST));
+    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(get_machine()->get_comp_by_type(HWCompType::I2C_HOST));
     i2c_bus->register_device(0x44, this->saa7187.get());
 
     // get (raw) pointer to the I/O controller
-    GrandCentral* gc_obj = dynamic_cast<GrandCentral*>(gMachineObj->get_comp_by_name("GrandCentralTnt"));
+    GrandCentral* gc_obj = dynamic_cast<GrandCentral*>(get_machine()->get_comp_by_name("GrandCentralTnt"));
 
     // attach IOBus Device #3 0xF301C000 ; sixty6
     gc_obj->attach_iodevice(2, this);
 
     // attach IOBus Device #5 0xF301E000 ; sixty6 composite/s-video
-    gMachineObj->add_device("BoardReg66", std::unique_ptr<BoardRegister>(
+    get_machine()->add_device("BoardReg66", std::unique_ptr<BoardRegister>(
         new BoardRegister("Board Register 66",
             ((GET_BIN_PROP("has_svideo") ^ 1) << 6)    | // S-Video connected (active low)
             ((GET_BIN_PROP("has_composite") ^ 1) << 7) | // Composite Video connected (active low)
             0xFF3FU                                      // pull up unused bits
     )));
-    gc_obj->attach_iodevice(4, dynamic_cast<BoardRegister*>(gMachineObj->get_comp_by_name("BoardReg66")));
+    gc_obj->attach_iodevice(4, dynamic_cast<BoardRegister*>(get_machine()->get_comp_by_name("BoardReg66")));
 }
 
 uint16_t Sixty6Video::iodev_read(uint32_t address)
@@ -408,7 +408,7 @@ void Sixty6Video::disable_display()
 int Sixty6Video::device_postinit()
 {
     this->int_ctrl = dynamic_cast<InterruptCtrl*>(
-        gMachineObj->get_comp_by_type(HWCompType::INT_CTRL));
+        get_machine()->get_comp_by_type(HWCompType::INT_CTRL));
     this->irq_id = this->int_ctrl->register_dev_int(IntSrc::SIXTY6);
 
     this->vbl_cb = [this](uint8_t irq_line_state) {
@@ -426,7 +426,7 @@ int Sixty6Video::device_postinit()
     };
 
     this->control_video = dynamic_cast<ControlVideo*>(
-        gMachineObj->get_comp_by_name("ControlVideo"));
+        get_machine()->get_comp_by_name("ControlVideo"));
 
     return 0;
 }

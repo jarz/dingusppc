@@ -250,8 +250,30 @@ if (DPPC_BUILD_PPC_TESTS)
         target_link_libraries(testppc PRIVATE capstone)
     endif()
 
+    add_executable(testmachine tests/test_machine_api.cpp
+                                           $<TARGET_OBJECTS:core>
+                                           $<TARGET_OBJECTS:cpu_ppc>
+                                           $<TARGET_OBJECTS:debugger>
+                                           $<TARGET_OBJECTS:devices>
+                                           $<TARGET_OBJECTS:machines>
+                                           $<TARGET_OBJECTS:utils>
+                                           $<TARGET_OBJECTS:loguru>)
+
+    if (WIN32)
+        target_link_libraries(testmachine PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(testmachine PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(testmachine PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(testmachine PRIVATE capstone)
+    endif()
+
     enable_testing()
     add_test(NAME testppc COMMAND testppc WORKING_DIRECTORY $<TARGET_FILE_DIR:testppc>)
+    add_test(NAME testmachine COMMAND testmachine)
 endif()
 
 option(DPPC_BUILD_CUDA_TESTS "Build ViaCuda tests" OFF)

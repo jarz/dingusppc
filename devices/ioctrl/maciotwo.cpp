@@ -28,23 +28,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 MacIoTwo::MacIoTwo(std::string name, uint16_t dev_id) : MacIoBase(name, dev_id) {
     // NVRAM connection
-    this->nvram = dynamic_cast<NVram*>(gMachineObj->get_comp_by_name("NVRAM"));
+    this->nvram = dynamic_cast<NVram*>(get_machine()->get_comp_by_name("NVRAM"));
 
     // connect SCSI controller cell and its DMA channel
-    this->mesh = dynamic_cast<MeshController*>(gMachineObj->get_comp_by_type(HWCompType::SCSI_HOST));
+    this->mesh = dynamic_cast<MeshController*>(get_machine()->get_comp_by_type(HWCompType::SCSI_HOST));
     this->mesh_dma = std::unique_ptr<DMAChannel> (new DMAChannel("mesh"));
     this->mesh_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_SCSI_MESH));
     this->mesh_dma->connect(this->mesh);
     this->mesh->connect(this->mesh_dma.get());
 
     // connect IDE HW
-    this->ide_0 = dynamic_cast<IdeChannel*>(gMachineObj->get_comp_by_name("Ide0"));
+    this->ide_0 = dynamic_cast<IdeChannel*>(get_machine()->get_comp_by_name("Ide0"));
     this->ide0_dma = std::unique_ptr<DMAChannel> (new DMAChannel("Ide0-Dma"));
     this->ide0_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_IDE0));
     this->ide0_dma->connect(this->ide_0);
     this->ide_0->connect(this->ide0_dma.get());
 
-    this->ide_1 = dynamic_cast<IdeChannel*>(gMachineObj->get_comp_by_name_optional("Ide1"));
+    this->ide_1 = dynamic_cast<IdeChannel*>(get_machine()->get_comp_by_name_optional("Ide1"));
     this->ide1_dma = std::unique_ptr<DMAChannel> (new DMAChannel("Ide1-Dma"));
     this->ide1_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_IDE1));
     if (this->ide_1) {
@@ -54,7 +54,7 @@ MacIoTwo::MacIoTwo(std::string name, uint16_t dev_id) : MacIoBase(name, dev_id) 
 
     // connect Ethernet HW (Heathrow and Paddington)
     if (this->device_id != MIO_DEV_ID_OHARE) {
-        this->bmac = dynamic_cast<BigMac*>(gMachineObj->get_comp_by_type(HWCompType::ETHER_MAC));
+        this->bmac = dynamic_cast<BigMac*>(get_machine()->get_comp_by_type(HWCompType::ETHER_MAC));
         this->enet_xmit_dma = std::unique_ptr<DMAChannel> (new DMAChannel("BmacTx"));
         this->enet_rcv_dma  = std::unique_ptr<DMAChannel> (new DMAChannel("BmacRx"));
     }

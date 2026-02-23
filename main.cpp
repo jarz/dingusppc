@@ -57,7 +57,7 @@ static void sigint_handler(int signum) {
 static void sigabrt_handler(int signum) {
     LOG_F(INFO, "Shutting down...");
 
-    delete gMachineObj.release();
+    release_machine();
     cleanup();
 }
 
@@ -269,7 +269,7 @@ int main(int argc, char** argv) {
         DppcDebugger::get_instance()->enter_debugger();
 
         // Ensure that NVRAM and other state is persisted before we terminate.
-        delete gMachineObj.release();
+        release_machine();
     });
 
     // redirect SIGINT to our own handler
@@ -306,7 +306,7 @@ int main(int argc, char** argv) {
     }
 
     // if we didn't delete this then delete it now
-    delete gMachineObj.release();
+    release_machine();
 
     cleanup();
 
@@ -409,5 +409,5 @@ void run_machine(std::string machine_str, char* rom_data,
         TimerManager::get_instance()->cancel_timer(deterministic_timer);
     }
     EventManager::get_instance()->disconnect_handlers();
-    delete gMachineObj.release();
+    release_machine();
 }

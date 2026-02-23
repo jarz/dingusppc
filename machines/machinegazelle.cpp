@@ -68,14 +68,14 @@ public:
 int MachineGazelle::initialize(const std::string &id) {
     LOG_F(INFO, "Building machine Gazelle...");
 
-    PCIHost *pci_host = dynamic_cast<PCIHost*>(gMachineObj->get_comp_by_name("PsxPci1"));
+    PCIHost *pci_host = dynamic_cast<PCIHost*>(get_machine()->get_comp_by_name("PsxPci1"));
     pci_host->set_irq_map(psx_irq_map);
 
     // register O'Hare I/O controller with the main PCI bus
     pci_host->pci_register_device(
-        DEV_FUN(0x10,0), dynamic_cast<PCIDevice*>(gMachineObj->get_comp_by_name("OHare")));
+        DEV_FUN(0x10,0), dynamic_cast<PCIDevice*>(get_machine()->get_comp_by_name("OHare")));
 
-    PsxCtrl* psx_obj = dynamic_cast<PsxCtrl*>(gMachineObj->get_comp_by_name("Psx"));
+    PsxCtrl* psx_obj = dynamic_cast<PsxCtrl*>(get_machine()->get_comp_by_name("Psx"));
 
     // allocate ROM region
     if (!psx_obj->add_rom_region(0xFFC00000, 0x400000)) {

@@ -56,7 +56,7 @@ int AtapiCdrom::device_postinit() {
 
     parse_device_path(cdr_config, bus_id, dev_num);
 
-    auto bus_obj = dynamic_cast<IdeChannel*>(gMachineObj->get_comp_by_name(bus_id));
+    auto bus_obj = dynamic_cast<IdeChannel*>(get_machine()->get_comp_by_name(bus_id));
     bus_obj->register_device(dev_num, this);
 
     std::string cdr_image_path = GET_STR_PROP("cdr_img");

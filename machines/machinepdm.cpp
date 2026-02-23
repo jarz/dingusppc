@@ -60,7 +60,7 @@ void setup_pds() {
         }
 
         // add device to the machine object
-        gMachineObj->add_device(dev_name, std::move(dev_obj));
+        get_machine()->add_device(dev_name, std::move(dev_obj));
 
         LOG_F(INFO, "Plugged %s into the PDS/VDS slot", dev_name.c_str());
     }
@@ -89,7 +89,7 @@ int MachinePdm::initialize(const std::string &id) {
     uint16_t machine_id;
 
     // get raw pointer to HMC object
-    HMC* hmc_obj = dynamic_cast<HMC*>(gMachineObj->get_comp_by_name("HMC"));
+    HMC* hmc_obj = dynamic_cast<HMC*>(get_machine()->get_comp_by_name("HMC"));
 
     if (id == "pm6100") {
         machine_id = 0x3010;
@@ -103,9 +103,9 @@ int MachinePdm::initialize(const std::string &id) {
     }
 
     // create machine ID register
-    gMachineObj->add_device("MachineID", std::unique_ptr<NubusMacID>(new NubusMacID(machine_id)));
+    get_machine()->add_device("MachineID", std::unique_ptr<NubusMacID>(new NubusMacID(machine_id)));
     hmc_obj->add_mmio_region(0x5FFFFFFC, 4,
-        dynamic_cast<MMIODevice*>(gMachineObj->get_comp_by_name("MachineID")));
+        dynamic_cast<MMIODevice*>(get_machine()->get_comp_by_name("MachineID")));
 
     // allocate ROM region
     if (!hmc_obj->add_rom_region(0x40000000, 0x400000)) {

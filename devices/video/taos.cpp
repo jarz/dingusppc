@@ -41,7 +41,7 @@ TaosVideo::TaosVideo() : VideoCtrlBase() {
     this->clk_gen = std::unique_ptr<AthensClocks>(new AthensClocks(0x29, 20000000.0f));
 
     // register the video clock generator with the I2C host
-    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(gMachineObj->get_comp_by_type(
+    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(get_machine()->get_comp_by_type(
         HWCompType::I2C_HOST));
     i2c_bus->register_device(0x29, this->clk_gen.get());
 
@@ -52,7 +52,7 @@ TaosVideo::TaosVideo() : VideoCtrlBase() {
     i2c_bus->register_device(0x44, this->vid_enc.get());
 
     MemCtrlBase* mem_ctrl = dynamic_cast<MemCtrlBase*>(
-        gMachineObj->get_comp_by_type(HWCompType::MEM_CTRL));
+        get_machine()->get_comp_by_type(HWCompType::MEM_CTRL));
 
     // add MMIO region for VRAM
     mem_ctrl->add_ram_region(TAOS_VRAM_REGION_BASE, DRAM_CAP_1MB);

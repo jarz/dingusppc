@@ -99,7 +99,7 @@ void IdeChannel::assert_dmareq(uint64_t delay) {
 
 int MacioIdeChannel::device_postinit() {
     this->int_ctrl = dynamic_cast<InterruptCtrl*>(
-        gMachineObj->get_comp_by_type(HWCompType::INT_CTRL));
+        get_machine()->get_comp_by_type(HWCompType::INT_CTRL));
     this->irq_id = this->int_ctrl->register_dev_int(
         this->name == "IDE0" ? IntSrc::IDE0 : IntSrc::IDE1);
 
