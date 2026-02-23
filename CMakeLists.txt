@@ -213,7 +213,7 @@ elseif (EMSCRIPTEN)
                                     "-s MODULARIZE"
                                     "-s EXPORT_ES6"
                                     "-s EXPORT_NAME=emulator"
-                                    "-s 'EXTRA_EXPORTED_RUNTIME_METHODS=[\"FS\"]'")
+                                    "-s 'EXPORTED_RUNTIME_METHODS=[\"FS\"]'")
 else()
     target_link_libraries(dingusppc PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
                                     ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})

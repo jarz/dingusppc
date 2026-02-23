@@ -264,7 +264,7 @@ int CharIoStdin::rcv_char(uint8_t *c)
 
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <sys/errno.h>
+#include <errno.h>
 
 
 CharIoSocket::CharIoSocket()
