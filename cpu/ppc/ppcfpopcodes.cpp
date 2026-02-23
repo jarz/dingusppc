@@ -128,6 +128,8 @@ static void fpresult_update(double set_result) {
             ppc_state.fpscr |= FPCC_ZERO;
         }
 
+// Emscripten's fenv.h does not define FE_OVERFLOW/FE_UNDERFLOW/FE_DIVBYZERO.
+#ifndef __EMSCRIPTEN__
         if (std::fetestexcept(FE_OVERFLOW)) {
             ppc_state.fpscr |= (OX + FX);
         }
@@ -139,6 +141,7 @@ static void fpresult_update(double set_result) {
         }
 
         std::feclearexcept(FE_ALL_EXCEPT);
+#endif
 
         if (std::isinf(set_result))
             ppc_state.fpscr |= FPCC_FUNAN;
