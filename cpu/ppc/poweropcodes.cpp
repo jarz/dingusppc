@@ -96,7 +96,7 @@ void dppc_interpreter::power_div(uint32_t opcode) {
     int64_t quotient;
     int32_t remainder;
 
-    if (dividend == -0x80000000 && divisor == -1) {
+    if ((dividend == INT32_MIN || dividend == INT64_MIN) && divisor == -1) {
         remainder = 0;
         ppc_result_d = 0x80000000U; // -2^31 aka INT32_MIN
         if (ov)
