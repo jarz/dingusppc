@@ -86,13 +86,13 @@ void PCIHost::pci_unregister_device(int dev_fun_num)
     );
 
     this->dev_map.erase(dev_fun_num);
-    gMachineObj->remove_device(dev_instance); // calls destructor of dev_instance since it is a unique_ptr in the device_map.
+    get_machine()->remove_device(dev_instance); // calls destructor of dev_instance since it is a unique_ptr in the device_map.
 }
 
 AddressMapEntry* PCIHost::pci_register_mmio_region(uint32_t start_addr, uint32_t size, PCIBase* obj)
 {
     MemCtrlBase *mem_ctrl = dynamic_cast<MemCtrlBase *>
-                           (gMachineObj->get_comp_by_type(HWCompType::MEM_CTRL));
+                           (get_machine()->get_comp_by_type(HWCompType::MEM_CTRL));
     // FIXME: add sanity checks!
     return mem_ctrl->add_mmio_region(start_addr, size, obj);
 }
@@ -100,7 +100,7 @@ AddressMapEntry* PCIHost::pci_register_mmio_region(uint32_t start_addr, uint32_t
 bool PCIHost::pci_unregister_mmio_region(uint32_t start_addr, uint32_t size, PCIBase* obj)
 {
     MemCtrlBase *mem_ctrl = dynamic_cast<MemCtrlBase *>
-                           (gMachineObj->get_comp_by_type(HWCompType::MEM_CTRL));
+                           (get_machine()->get_comp_by_type(HWCompType::MEM_CTRL));
     // FIXME: add sanity checks!
     return mem_ctrl->remove_mmio_region(start_addr, size, obj);
 }
@@ -137,9 +137,9 @@ PCIBase *PCIHost::attach_pci_device(const std::string& dev_name, int slot_id, co
     }
 
     // add device to the machine object
-    gMachineObj->add_device(dev_name + dev_suffix, std::move(dev_obj));
+    get_machine()->add_device(dev_name + dev_suffix, std::move(dev_obj));
 
-    PCIBase *dev = dynamic_cast<PCIBase*>(gMachineObj->get_comp_by_name(dev_name + dev_suffix));
+    PCIBase *dev = dynamic_cast<PCIBase*>(get_machine()->get_comp_by_name(dev_name + dev_suffix));
     dev->set_name(dev->get_name() + dev_suffix);
 
     // register device with the PCI host
@@ -151,7 +151,7 @@ PCIBase *PCIHost::attach_pci_device(const std::string& dev_name, int slot_id, co
 InterruptCtrl *PCIHost::get_interrupt_controller() {
     if (!this->int_ctrl) {
         InterruptCtrl *int_ctrl_obj =
-            dynamic_cast<InterruptCtrl*>(gMachineObj->get_comp_by_type(HWCompType::INT_CTRL));
+            dynamic_cast<InterruptCtrl*>(get_machine()->get_comp_by_type(HWCompType::INT_CTRL));
         this->int_ctrl = int_ctrl_obj;
     }
     return this->int_ctrl;

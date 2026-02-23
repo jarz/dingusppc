@@ -68,50 +68,50 @@ int MachineTnt::initialize(const std::string &id) {
 
     HammerheadCtrl* memctrl_obj;
 
-    PCIHost *pci_host = dynamic_cast<PCIHost*>(gMachineObj->get_comp_by_name("Bandit1"));
+    PCIHost *pci_host = dynamic_cast<PCIHost*>(get_machine()->get_comp_by_name("Bandit1"));
     pci_host->set_irq_map(bandit1_irq_map);
 
     // get (raw) pointer to the I/O controller
-    GrandCentral* gc_obj = dynamic_cast<GrandCentral*>(gMachineObj->get_comp_by_name("GrandCentralTnt"));
+    GrandCentral* gc_obj = dynamic_cast<GrandCentral*>(get_machine()->get_comp_by_name("GrandCentralTnt"));
 
     // connect GrandCentral I/O controller to the PCI1 bus
     pci_host->pci_register_device(
         DEV_FUN(0x10,0), gc_obj);
 
     // get video PCI controller object
-    PCIHost *vci_host = dynamic_cast<PCIHost*>(gMachineObj->get_comp_by_name_optional("Chaos"));
+    PCIHost *vci_host = dynamic_cast<PCIHost*>(get_machine()->get_comp_by_name_optional("Chaos"));
     if (vci_host) {
         vci_host->set_irq_map(chaos_irq_map);
         // connect built-in video device to the VCI bus
         vci_host->pci_register_device(
-            DEV_FUN(0x0B,0), dynamic_cast<PCIDevice*>(gMachineObj->get_comp_by_name("ControlVideo")));
+            DEV_FUN(0x0B,0), dynamic_cast<PCIDevice*>(get_machine()->get_comp_by_name("ControlVideo")));
     }
 
     // attach IOBus Device #1 0xF301A000
-    gMachineObj->add_device("BoardReg1", std::unique_ptr<BoardRegister>(
+    get_machine()->add_device("BoardReg1", std::unique_ptr<BoardRegister>(
         new BoardRegister("Board Register 1",
             0x3F                                                                       | // pull up all PRSNT bits
             ((GET_BIN_PROP("emmo") ^ 1) << 8)                                          | // factory tests (active low)
-            ((gMachineObj->get_comp_by_name_optional("Sixty6Video") == nullptr) << 13) | // composite video out (active low)
-            ((gMachineObj->get_comp_by_name_optional("MeshTnt") != nullptr) << 14)     | // fast SCSI (active high)
+            ((get_machine()->get_comp_by_name_optional("Sixty6Video") == nullptr) << 13) | // composite video out (active low)
+            ((get_machine()->get_comp_by_name_optional("MeshTnt") != nullptr) << 14)     | // fast SCSI (active high)
             0x8000U                                                                      // pull up unused bits
     )));
-    gc_obj->attach_iodevice(0, dynamic_cast<BoardRegister*>(gMachineObj->get_comp_by_name("BoardReg1")));
+    gc_obj->attach_iodevice(0, dynamic_cast<BoardRegister*>(get_machine()->get_comp_by_name("BoardReg1")));
 
-    PCIHost *pci2_host = dynamic_cast<PCIHost*>(gMachineObj->get_comp_by_name_optional("Bandit2"));
+    PCIHost *pci2_host = dynamic_cast<PCIHost*>(get_machine()->get_comp_by_name_optional("Bandit2"));
     if (pci2_host) {
         pci2_host->set_irq_map(bandit2_irq_map);
         // attach IOBus Device #3 0xF301C000
-        gMachineObj->add_device("BoardReg2", std::unique_ptr<BoardRegister>(
+        get_machine()->add_device("BoardReg2", std::unique_ptr<BoardRegister>(
             new BoardRegister("Board Register 2",
                 0x3F                                        | // pull up all PRSNT bits
                 0x8000U                                       // pull up unused bits
         )));
-        gc_obj->attach_iodevice(2, dynamic_cast<BoardRegister*>(gMachineObj->get_comp_by_name("BoardReg2")));
+        gc_obj->attach_iodevice(2, dynamic_cast<BoardRegister*>(get_machine()->get_comp_by_name("BoardReg2")));
     }
 
     // get (raw) pointer to the memory controller
-    memctrl_obj = dynamic_cast<HammerheadCtrl*>(gMachineObj->get_comp_by_name("Hammerhead"));
+    memctrl_obj = dynamic_cast<HammerheadCtrl*>(get_machine()->get_comp_by_name("Hammerhead"));
 
     memctrl_obj->set_motherboard_id((vci_host ? Hammerhead::MBID_VCI0_PRESENT : 0) |
                                     (pci2_host ? Hammerhead::MBID_PCI2_PRESENT : 0));

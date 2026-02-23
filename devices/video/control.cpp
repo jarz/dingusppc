@@ -107,7 +107,7 @@ ControlVideo::ControlVideo()
     this->clk_gen = std::unique_ptr<AthensClocks> (new AthensClocks(0x28));
 
     // register the video clock generator with the I2C host
-    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(gMachineObj->get_comp_by_type(HWCompType::I2C_HOST));
+    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(get_machine()->get_comp_by_type(HWCompType::I2C_HOST));
     i2c_bus->register_device(0x28, this->clk_gen.get());
 
     // attach RAMDAC
@@ -132,7 +132,7 @@ ControlVideo::ControlVideo()
     };
 
     // attach IOBus Device #2 0xF301B000 ; register RaDACal with the I/O controller
-    GrandCentral* gc_obj = dynamic_cast<GrandCentral*>(gMachineObj->get_comp_by_name("GrandCentralTnt"));
+    GrandCentral* gc_obj = dynamic_cast<GrandCentral*>(get_machine()->get_comp_by_name("GrandCentralTnt"));
     gc_obj->attach_iodevice(1, this->radacal.get());
 
     // initialize display identification
@@ -162,7 +162,7 @@ void ControlVideo::notify_bar_change(int bar_num) {
 
 int ControlVideo::device_postinit() {
     this->int_ctrl = dynamic_cast<InterruptCtrl*>(
-        gMachineObj->get_comp_by_type(HWCompType::INT_CTRL));
+        get_machine()->get_comp_by_type(HWCompType::INT_CTRL));
     this->irq_id = this->int_ctrl->register_dev_int(IntSrc::CONTROL);
 
     this->vbl_cb = [this](uint8_t irq_line_state) {

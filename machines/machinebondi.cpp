@@ -45,12 +45,12 @@ static void setup_ram_slot(std::string name, int i2c_addr, int capacity_megs) {
     if (!capacity_megs)
         return;
 
-    gMachineObj->add_device(name, std::unique_ptr<SpdSdram168>(new SpdSdram168(i2c_addr)));
-    SpdSdram168* ram_dimm = dynamic_cast<SpdSdram168*>(gMachineObj->get_comp_by_name(name));
+    get_machine()->add_device(name, std::unique_ptr<SpdSdram168>(new SpdSdram168(i2c_addr)));
+    SpdSdram168* ram_dimm = dynamic_cast<SpdSdram168*>(get_machine()->get_comp_by_name(name));
     ram_dimm->set_capacity(capacity_megs);
 
     // register RAM DIMM with the I2C bus
-    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(gMachineObj->get_comp_by_type(HWCompType::I2C_HOST));
+    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(get_machine()->get_comp_by_type(HWCompType::I2C_HOST));
     i2c_bus->register_device(i2c_addr, ram_dimm);
 }
 
@@ -63,10 +63,10 @@ int MachineBondi::initialize(const std::string &id) {
     LOG_F(INFO, "Building machine Bondi...");
 
     // get pointer to the memory controller/primary PCI bridge object
-    MPC106* grackle_obj = dynamic_cast<MPC106*>(gMachineObj->get_comp_by_name("Grackle"));
+    MPC106* grackle_obj = dynamic_cast<MPC106*>(get_machine()->get_comp_by_name("Grackle"));
     grackle_obj->set_irq_map(grackle_irq_map);
 
-    MacIoTwo* mio_obj = dynamic_cast<MacIoTwo*>(gMachineObj->get_comp_by_name("Paddington"));
+    MacIoTwo* mio_obj = dynamic_cast<MacIoTwo*>(get_machine()->get_comp_by_name("Paddington"));
     mio_obj->set_media_bay_id(0x30);
 
     grackle_obj->pci_register_device(DEV_FUN(0x10,0), mio_obj);

@@ -190,17 +190,17 @@ void parse_device_path(std::string dev_path, std::string& bus_id, uint32_t& dev_
 /** Special map type for specifying machine presets. */
 typedef std::map<std::string, BasicProperty*> PropMap;
 
-/** Global map that holds settings for the running machine. */
-extern std::map<std::string, std::unique_ptr<BasicProperty>> gMachineSettings;
+/** Accessor for the global machine settings map. */
+std::map<std::string, std::unique_ptr<BasicProperty>>& get_machine_settings();
 
 /** Conveniency macros to hide complex casts. */
 #define GET_STR_PROP(name) \
-    dynamic_cast<StrProperty*>(gMachineSettings.at(name).get())->get_string()
+    dynamic_cast<StrProperty*>(get_machine_settings().at(name).get())->get_string()
 
 #define GET_INT_PROP(name) \
-    dynamic_cast<IntProperty*>(gMachineSettings.at(name).get())->get_int()
+    dynamic_cast<IntProperty*>(get_machine_settings().at(name).get())->get_int()
 
 #define GET_BIN_PROP(name) \
-    dynamic_cast<BinProperty*>(gMachineSettings.at(name).get())->get_val()
+    dynamic_cast<BinProperty*>(get_machine_settings().at(name).get())->get_val()
 
 #endif // MACHINE_PROPERTIES_H

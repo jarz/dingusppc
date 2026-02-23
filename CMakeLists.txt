@@ -250,8 +250,62 @@ if (DPPC_BUILD_PPC_TESTS)
         target_link_libraries(testppc PRIVATE capstone)
     endif()
 
+    add_executable(testmachine tests/test_machine_api.cpp
+                                           $<TARGET_OBJECTS:core>
+                                           $<TARGET_OBJECTS:cpu_ppc>
+                                           $<TARGET_OBJECTS:debugger>
+                                           $<TARGET_OBJECTS:devices>
+                                           $<TARGET_OBJECTS:machines>
+                                           $<TARGET_OBJECTS:utils>
+                                           $<TARGET_OBJECTS:loguru>)
+
+    if (WIN32)
+        target_link_libraries(testmachine PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(testmachine PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(testmachine PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(testmachine PRIVATE capstone)
+    endif()
+
+    # Helper macro: declare a standard unit-test executable that uses the full
+    # object set (consistent with testppc / testmachine) plus SDL and cubeb.
+    macro(dppc_add_test TARGET_NAME SOURCE_FILE)
+        add_executable(${TARGET_NAME} ${SOURCE_FILE}
+                       $<TARGET_OBJECTS:core>
+                       $<TARGET_OBJECTS:cpu_ppc>
+                       $<TARGET_OBJECTS:debugger>
+                       $<TARGET_OBJECTS:devices>
+                       $<TARGET_OBJECTS:machines>
+                       $<TARGET_OBJECTS:utils>
+                       $<TARGET_OBJECTS:loguru>)
+        if (WIN32)
+            target_link_libraries(${TARGET_NAME} PRIVATE SDL2::SDL2 cubeb)
+            target_compile_definitions(${TARGET_NAME} PRIVATE SDL_MAIN_HANDLED)
+        else()
+            target_link_libraries(${TARGET_NAME} PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                  ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+        endif()
+        if (DPPC_68K_DEBUGGER)
+            target_link_libraries(${TARGET_NAME} PRIVATE capstone)
+        endif()
+        add_test(NAME ${TARGET_NAME} COMMAND ${TARGET_NAME})
+    endmacro()
+
+    dppc_add_test(testutils     tests/test_utils.cpp)
+    dppc_add_test(testi2c       tests/test_i2c.cpp)
+    dppc_add_test(testtimer     tests/test_timermanager.cpp)
+    dppc_add_test(testproperties tests/test_properties.cpp)
+    dppc_add_test(testpcicfg    tests/test_pci_cfg.cpp)
+    dppc_add_test(testnvram     tests/test_nvram.cpp)
+    dppc_add_test(testadb       tests/test_adb.cpp)
+
     enable_testing()
     add_test(NAME testppc COMMAND testppc WORKING_DIRECTORY $<TARGET_FILE_DIR:testppc>)
+    add_test(NAME testmachine COMMAND testmachine)
 endif()
 
 option(DPPC_BUILD_CUDA_TESTS "Build ViaCuda tests" OFF)

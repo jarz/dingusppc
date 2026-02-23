@@ -326,7 +326,7 @@ void ScsiBus::attach_scsi_devices(const std::string bus_suffix)
                 std::string scsi_device_name = "ScsiHD" + bus_suffix + "," +
                                                std::to_string(scsi_id);
                 ScsiHardDisk *scsi_device = new ScsiHardDisk(scsi_device_name, scsi_id);
-                gMachineObj->add_device(scsi_device_name,
+                get_machine()->add_device(scsi_device_name,
                                         std::unique_ptr<ScsiHardDisk>(scsi_device));
                 this->register_device(scsi_id, scsi_device);
                 scsi_device->insert_image(path);
@@ -351,7 +351,7 @@ void ScsiBus::attach_scsi_devices(const std::string bus_suffix)
                 std::string scsi_device_name = "ScsiCdrom" + bus_suffix + "," +
                                                std::to_string(scsi_id);
                 ScsiCdrom *scsi_device = new ScsiCdrom(scsi_device_name, scsi_id);
-                gMachineObj->add_device(scsi_device_name,
+                get_machine()->add_device(scsi_device_name,
                                         std::unique_ptr<ScsiCdrom>(scsi_device));
                 this->register_device(scsi_id, scsi_device);
                 scsi_device->insert_image(path);

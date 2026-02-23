@@ -121,7 +121,7 @@ int load_declaration_rom(const std::string rom_path, int slot_num)
         // calculate starting physical address of the ROM
         uint32_t rom_phys_start = (0xF0FFFFFFUL | ((slot_num & 0xF) << 24)) - padded_len + 1;
 
-        auto mem_crtl = dynamic_cast<MemCtrlBase*>(gMachineObj->get_comp_by_type(HWCompType::MEM_CTRL));
+        auto mem_crtl = dynamic_cast<MemCtrlBase*>(get_machine()->get_comp_by_type(HWCompType::MEM_CTRL));
         if (!mem_crtl->add_rom_region(rom_phys_start, padded_len))
             throw std::runtime_error("could not allocate ROM space for declaration ROM image " +
                                      rom_path);

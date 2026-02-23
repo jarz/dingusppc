@@ -51,10 +51,10 @@ MacIoBase::MacIoBase(std::string name, uint16_t dev_id, uint8_t rev) :
     };
 
     // connect Cuda
-    this->viacuda = dynamic_cast<ViaCuda*>(gMachineObj->get_comp_by_name("ViaCuda"));
+    this->viacuda = dynamic_cast<ViaCuda*>(get_machine()->get_comp_by_name("ViaCuda"));
 
     // find the sound codec, create its DMA channels, then wire everything together
-    this->snd_codec   = dynamic_cast<MacioSndCodec*>(gMachineObj->get_comp_by_type(HWCompType::SND_CODEC));
+    this->snd_codec   = dynamic_cast<MacioSndCodec*>(get_machine()->get_comp_by_type(HWCompType::SND_CODEC));
     this->snd_out_dma = std::unique_ptr<DMAChannel> (new DMAChannel("snd_out"));
     this->snd_out_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_DAVBUS_Tx));
     this->snd_codec->set_dma_out(this->snd_out_dma.get());
@@ -71,13 +71,13 @@ MacIoBase::MacIoBase(std::string name, uint16_t dev_id, uint8_t rev) :
     );
 
     // connect floppy disk controller and initialize its DMA channel
-    this->swim3 = dynamic_cast<Swim3::Swim3Ctrl*>(gMachineObj->get_comp_by_name("Swim3"));
+    this->swim3 = dynamic_cast<Swim3::Swim3Ctrl*>(get_machine()->get_comp_by_name("Swim3"));
     this->floppy_dma = std::unique_ptr<DMAChannel> (new DMAChannel("floppy"));
     this->swim3->set_dma_channel(this->floppy_dma.get());
     this->floppy_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_SWIM3));
 
     // connect serial HW to its DMA channels
-    this->escc = dynamic_cast<EsccController*>(gMachineObj->get_comp_by_name("Escc"));
+    this->escc = dynamic_cast<EsccController*>(get_machine()->get_comp_by_name("Escc"));
     this->escc_a_tx_dma = std::unique_ptr<DMAChannel> (new DMAChannel("Escc_a_tx"));
     this->escc_a_rx_dma = std::unique_ptr<DMAChannel> (new DMAChannel("Escc_a_rx"));
     this->escc_b_tx_dma = std::unique_ptr<DMAChannel> (new DMAChannel("Escc_b_tx"));

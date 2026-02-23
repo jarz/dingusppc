@@ -52,12 +52,12 @@ static void setup_ram_slot(std::string name, int i2c_addr, int capacity_megs) {
     if (!capacity_megs)
         return;
 
-    gMachineObj->add_device(name, std::unique_ptr<SpdSdram168>(new SpdSdram168(i2c_addr)));
-    SpdSdram168* ram_dimm = dynamic_cast<SpdSdram168*>(gMachineObj->get_comp_by_name(name));
+    get_machine()->add_device(name, std::unique_ptr<SpdSdram168>(new SpdSdram168(i2c_addr)));
+    SpdSdram168* ram_dimm = dynamic_cast<SpdSdram168*>(get_machine()->get_comp_by_name(name));
     ram_dimm->set_capacity(capacity_megs);
 
     // register RAM DIMM with the I2C bus
-    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(gMachineObj->get_comp_by_type(HWCompType::I2C_HOST));
+    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(get_machine()->get_comp_by_type(HWCompType::I2C_HOST));
     i2c_bus->register_device(i2c_addr, ram_dimm);
 }
 
@@ -70,11 +70,11 @@ int MachineYosemite::initialize(const std::string &id) {
     LOG_F(INFO, "Building machine Yosemite...");
 
     // get pointer to the memory controller/primary PCI bridge object
-    MPC106* grackle_obj = dynamic_cast<MPC106*>(gMachineObj->get_comp_by_name("Grackle"));
+    MPC106* grackle_obj = dynamic_cast<MPC106*>(get_machine()->get_comp_by_name("Grackle"));
     grackle_obj->set_irq_map(grackle_irq_map);
 
     // get pointer to the bridge of the secondary PCI bus
-    DecPciBridge *sec_bridge = dynamic_cast<DecPciBridge*>(gMachineObj->get_comp_by_name("Dec21154Yosemite"));
+    DecPciBridge *sec_bridge = dynamic_cast<DecPciBridge*>(get_machine()->get_comp_by_name("Dec21154Yosemite"));
     sec_bridge->set_irq_map(pci_bridge_irq_map);
 
     // 00:0D.0 PCI Bridge
@@ -82,10 +82,10 @@ int MachineYosemite::initialize(const std::string &id) {
 
     // register CMD646U2 PCI Ultra ATA Controller
     sec_bridge->pci_register_device(DEV_FUN(1,0),
-        dynamic_cast<PCIDevice*>(gMachineObj->get_comp_by_name("CmdAta")));
+        dynamic_cast<PCIDevice*>(get_machine()->get_comp_by_name("CmdAta")));
 
     sec_bridge->pci_register_device(DEV_FUN(5,0),
-        dynamic_cast<PCIDevice*>(gMachineObj->get_comp_by_name("Paddington")));
+        dynamic_cast<PCIDevice*>(get_machine()->get_comp_by_name("Paddington")));
 
     // allocate ROM region
     if (!grackle_obj->add_rom_region(0xFFF00000, 0x100000)) {

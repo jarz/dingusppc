@@ -2297,18 +2297,18 @@ static void setup() {
     tm->set_time_now_cb([]() -> uint64_t { return fake_time_ns; });
     tm->set_notify_changes_cb([]() {});
 
-    gMachineObj = make_unique<MachineBase>("test-cuda");
-    gMachineObj->add_device("ADB-BUS", AdbBus::create());
+    set_machine(make_unique<MachineBase>("test-cuda"));
+    get_machine()->add_device("ADB-BUS", AdbBus::create());
 
     // Add mock interrupt controller (needed for transaction tests)
-    gMachineObj->add_device("MockIntCtrl", MockInterruptCtrl::create());
+    get_machine()->add_device("MockIntCtrl", MockInterruptCtrl::create());
 
-    gMachineObj->add_device("ViaCuda", ViaCuda::create());
+    get_machine()->add_device("ViaCuda", ViaCuda::create());
 
     g_cuda = dynamic_cast<ViaCuda*>(
-        gMachineObj->get_comp_by_type(HWCompType::I2C_HOST));
+        get_machine()->get_comp_by_type(HWCompType::I2C_HOST));
     g_mock_int = dynamic_cast<MockInterruptCtrl*>(
-        gMachineObj->get_comp_by_type(HWCompType::INT_CTRL));
+        get_machine()->get_comp_by_type(HWCompType::INT_CTRL));
 
     // Run device_postinit to wire up interrupt controller
     g_cuda->device_postinit();
@@ -2317,7 +2317,7 @@ static void setup() {
 static void teardown() {
     g_cuda = nullptr;
     g_mock_int = nullptr;
-    gMachineObj.reset();
+    release_machine();
 }
 
 int main() {

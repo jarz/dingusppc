@@ -41,7 +41,7 @@ PdmOnboardVideo::PdmOnboardVideo()
     this->pixel_depth = 0;
 
     // get pointer to the Highspeed Memory controller
-    this->hmc_obj = dynamic_cast<HMC*>(gMachineObj->get_comp_by_name("HMC"));
+    this->hmc_obj = dynamic_cast<HMC*>(get_machine()->get_comp_by_name("HMC"));
 }
 
 void PdmOnboardVideo::set_video_mode(uint8_t new_mode)

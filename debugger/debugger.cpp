@@ -977,7 +977,7 @@ void DppcDebugger::enter_debugger() {
                 continue;
             }
             InterruptCtrl* int_ctrl = dynamic_cast<InterruptCtrl*>(
-                gMachineObj->get_comp_by_type(HWCompType::INT_CTRL));
+                get_machine()->get_comp_by_type(HWCompType::INT_CTRL));
             int_ctrl->ack_int(irq_id, 1);
         } else if (cmd == "viaint") {
             cmd = "";
@@ -990,7 +990,7 @@ void DppcDebugger::enter_debugger() {
                 cout << exc.what() << endl;
                 continue;
             }
-            ViaCuda* via_obj = dynamic_cast<ViaCuda*>(gMachineObj->get_comp_by_name("ViaCuda"));
+            ViaCuda* via_obj = dynamic_cast<ViaCuda*>(get_machine()->get_comp_by_name("ViaCuda"));
             ppc_state.pc -= 4;
             via_obj->assert_int(irq_bit);
 #endif

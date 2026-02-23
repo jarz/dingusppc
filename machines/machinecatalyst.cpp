@@ -56,17 +56,17 @@ int MachineCatalyst::initialize(const std::string &id) {
 
     PlatinumCtrl* platinum_obj;
 
-    PCIHost *pci_host = dynamic_cast<PCIHost*>(gMachineObj->get_comp_by_name("Bandit1"));
+    PCIHost *pci_host = dynamic_cast<PCIHost*>(get_machine()->get_comp_by_name("Bandit1"));
     pci_host->set_irq_map(bandit1_irq_map);
 
     // get (raw) pointer to the I/O controller
-    GrandCentral* gc_obj = dynamic_cast<GrandCentral*>(gMachineObj->get_comp_by_name("GrandCentralCatalyst"));
+    GrandCentral* gc_obj = dynamic_cast<GrandCentral*>(get_machine()->get_comp_by_name("GrandCentralCatalyst"));
 
     // connect GrandCentral I/O controller to the PCI1 bus
     pci_host->pci_register_device(DEV_FUN(0x10,0), gc_obj);
 
     // attach IOBus Device #1 0xF301A000
-    gMachineObj->add_device("BoardReg1", std::unique_ptr<BoardRegister>(
+    get_machine()->add_device("BoardReg1", std::unique_ptr<BoardRegister>(
         new BoardRegister("Board Register 1",
             0x3F                                | // pull up all PRSNT bits
             ((GET_BIN_PROP("emmo") ^ 1) << 8)   | // factory tests (active low)
@@ -74,10 +74,10 @@ int MachineCatalyst::initialize(const std::string &id) {
             0xE000U                               // pull up unused bits
     )));
 
-    gc_obj->attach_iodevice(0, dynamic_cast<BoardRegister*>(gMachineObj->get_comp_by_name("BoardReg1")));
+    gc_obj->attach_iodevice(0, dynamic_cast<BoardRegister*>(get_machine()->get_comp_by_name("BoardReg1")));
 
     // get (raw) pointer to the memory controller
-    platinum_obj = dynamic_cast<PlatinumCtrl*>(gMachineObj->get_comp_by_name("Platinum"));
+    platinum_obj = dynamic_cast<PlatinumCtrl*>(get_machine()->get_comp_by_name("Platinum"));
 
     // allocate ROM region
     if (!platinum_obj->add_rom_region(0xFFC00000, 0x400000)) {

@@ -35,14 +35,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 using namespace MeshScsi;
 
 int MeshController::device_postinit() {
-    this->bus_obj = dynamic_cast<ScsiBus*>(gMachineObj->get_comp_by_name("ScsiMesh"));
+    this->bus_obj = dynamic_cast<ScsiBus*>(get_machine()->get_comp_by_name("ScsiMesh"));
     if (bus_obj) {
         bus_obj->register_device(7, static_cast<ScsiPhysDevice*>(this));
         bus_obj->attach_scsi_devices("2");
     }
 
     this->int_ctrl = dynamic_cast<InterruptCtrl*>(
-        gMachineObj->get_comp_by_type(HWCompType::INT_CTRL));
+        get_machine()->get_comp_by_type(HWCompType::INT_CTRL));
     this->irq_id = this->int_ctrl->register_dev_int(IntSrc::SCSI_MESH);
 
     return 0;

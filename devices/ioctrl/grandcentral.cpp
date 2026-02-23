@@ -35,7 +35,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 NvramDev::NvramDev(NvramAddrHiDev *addr_hi) {
     // NVRAM connection
-    this->nvram = dynamic_cast<NVram*>(gMachineObj->get_comp_by_name("NVRAM"));
+    this->nvram = dynamic_cast<NVram*>(get_machine()->get_comp_by_name("NVRAM"));
     this->addr_hi = addr_hi;
 }
 
@@ -57,7 +57,7 @@ GrandCentral::GrandCentral() : PCIDevice("mac-io_grandcentral"), InterruptCtrl()
     };
 
     // connect Cuda
-    this->viacuda = dynamic_cast<ViaCuda*>(gMachineObj->get_comp_by_name("ViaCuda"));
+    this->viacuda = dynamic_cast<ViaCuda*>(get_machine()->get_comp_by_name("ViaCuda"));
 
     // initialize sound chip and its DMA output channel, then wire them together
     this->awacs       = std::unique_ptr<AwacsScreamer> (new AwacsScreamer());
@@ -77,7 +77,7 @@ GrandCentral::GrandCentral() : PCIDevice("mac-io_grandcentral"), InterruptCtrl()
     );
 
     // connect serial HW
-    this->escc = dynamic_cast<EsccController*>(gMachineObj->get_comp_by_name("Escc"));
+    this->escc = dynamic_cast<EsccController*>(get_machine()->get_comp_by_name("Escc"));
     this->escc_a_tx_dma = std::unique_ptr<DMAChannel> (new DMAChannel("Escc_a_tx"));
     this->escc_a_rx_dma = std::unique_ptr<DMAChannel> (new DMAChannel("Escc_a_rx"));
     this->escc_b_tx_dma = std::unique_ptr<DMAChannel> (new DMAChannel("Escc_b_tx"));
@@ -92,14 +92,13 @@ GrandCentral::GrandCentral() : PCIDevice("mac-io_grandcentral"), InterruptCtrl()
     this->escc->set_dma_channel(3, this->escc_b_rx_dma.get());
 
     // connect MESH (internal SCSI)
-    this->mesh = dynamic_cast<MeshBase*>(gMachineObj->get_comp_by_name_optional("MeshTnt"));
+    this->mesh = dynamic_cast<MeshBase*>(get_machine()->get_comp_by_name_optional("MeshTnt"));
     if (this->mesh == nullptr) {
         LOG_F(WARNING, "%s: Mesh not found, using MeshStub instead", this->name.c_str());
         this->mesh_stub = std::unique_ptr<MeshStub>(new MeshStub());
         this->mesh = dynamic_cast<MeshBase*>(this->mesh_stub.get());
     } else {
-        MeshController *mesh_obj =
-            dynamic_cast<MeshController*>(gMachineObj->get_comp_by_name_optional("MeshTnt"));
+        MeshController *mesh_obj = dynamic_cast<MeshController*>(this->mesh);
         this->mesh_dma = std::unique_ptr<DMAChannel> (new DMAChannel("mesh_scsi"));
         this->mesh_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_SCSI_MESH));
         this->mesh_dma->connect(mesh_obj);
@@ -107,7 +106,7 @@ GrandCentral::GrandCentral() : PCIDevice("mac-io_grandcentral"), InterruptCtrl()
     }
 
     // connect external SCSI controller (Curio) to its DMA channel
-    this->curio = dynamic_cast<Sc53C94*>(gMachineObj->get_comp_by_name("Sc53C94"));
+    this->curio = dynamic_cast<Sc53C94*>(get_machine()->get_comp_by_name("Sc53C94"));
     this->curio_dma = std::unique_ptr<DMAChannel> (new DMAChannel("curio_scsi"));
     this->curio_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_SCSI_CURIO));
     this->curio_dma->connect(this->curio);
@@ -118,7 +117,7 @@ GrandCentral::GrandCentral() : PCIDevice("mac-io_grandcentral"), InterruptCtrl()
     });
 
     // connect Ethernet HW
-    this->mace = dynamic_cast<MaceController*>(gMachineObj->get_comp_by_name("Mace"));
+    this->mace = dynamic_cast<MaceController*>(get_machine()->get_comp_by_name("Mace"));
     this->enet_tx_dma = std::unique_ptr<DMAChannel> (new DMAChannel("mace_enet_tx"));
     this->enet_tx_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_ETHERNET_Tx));
     this->enet_rx_dma = std::unique_ptr<DMAChannel> (new DMAChannel("mace_enet_rx"));
@@ -128,7 +127,7 @@ GrandCentral::GrandCentral() : PCIDevice("mac-io_grandcentral"), InterruptCtrl()
     this->mace->connect(this->enet_rx_dma.get());
 
     // connect floppy disk HW
-    this->swim3 = dynamic_cast<Swim3::Swim3Ctrl*>(gMachineObj->get_comp_by_name("Swim3"));
+    this->swim3 = dynamic_cast<Swim3::Swim3Ctrl*>(get_machine()->get_comp_by_name("Swim3"));
     this->floppy_dma = std::unique_ptr<DMAChannel> (new DMAChannel("floppy"));
     this->swim3->set_dma_channel(this->floppy_dma.get());
     this->floppy_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_SWIM3));

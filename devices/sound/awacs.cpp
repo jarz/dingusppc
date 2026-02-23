@@ -43,7 +43,7 @@ AwacsBase::AwacsBase(std::string name) {
 
     // connect to SoundServer
     this->snd_server = dynamic_cast<SoundServer *>
-        (gMachineObj->get_comp_by_name("SoundServer"));
+        (get_machine()->get_comp_by_name("SoundServer"));
     this->out_stream_ready = false;
 }
 
@@ -178,7 +178,7 @@ int AwacsScreamer::device_postinit() {
     this->audio_proc = std::unique_ptr<AudioProcessor> (new AudioProcessor());
 
     /* register audio processor chip with the I2C bus */
-    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(gMachineObj->get_comp_by_type(HWCompType::I2C_HOST));
+    I2CBus* i2c_bus = dynamic_cast<I2CBus*>(get_machine()->get_comp_by_type(HWCompType::I2C_HOST));
     i2c_bus->register_device(0x45, this->audio_proc.get());
 
     return 0;
