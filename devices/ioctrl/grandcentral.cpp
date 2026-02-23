@@ -98,8 +98,7 @@ GrandCentral::GrandCentral() : PCIDevice("mac-io_grandcentral"), InterruptCtrl()
         this->mesh_stub = std::unique_ptr<MeshStub>(new MeshStub());
         this->mesh = dynamic_cast<MeshBase*>(this->mesh_stub.get());
     } else {
-        MeshController *mesh_obj =
-            dynamic_cast<MeshController*>(get_machine()->get_comp_by_name_optional("MeshTnt"));
+        MeshController *mesh_obj = dynamic_cast<MeshController*>(this->mesh);
         this->mesh_dma = std::unique_ptr<DMAChannel> (new DMAChannel("mesh_scsi"));
         this->mesh_dma->register_dma_int(this, this->register_dma_int(IntSrc::DMA_SCSI_MESH));
         this->mesh_dma->connect(mesh_obj);
