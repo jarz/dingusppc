@@ -147,8 +147,9 @@ private:
 
     std::atomic<uint32_t> id{0};
 
-    // FIXME: Do we need this? It gets written in main thread and read in audio thread.
-    bool cb_active = false; // true if a timer callback is executing
+    // cb_active is written by timer processing and read during timer additions
+    // std::atomic ensures thread safety across different callback contexts
+    std::atomic<bool> cb_active{false}; // true if a timer callback is executing
 };
 
 #endif // TIMER_MANAGER_H

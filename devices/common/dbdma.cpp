@@ -35,11 +35,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <loguru.hpp>
 
 void DMAChannel::set_callbacks(DbdmaCallback start_cb, DbdmaCallback stop_cb) {
+    // Must be called during initialization only, before any thread uses
+    // the channel.  No lock required (single-threaded setup phase).
     this->start_cb = start_cb;
     this->stop_cb  = stop_cb;
 }
 
 void DMAChannel::set_data_callbacks(DbdmaCallback in_cb, DbdmaCallback out_cb, DbdmaCallback flush_cb) {
+    // Must be called during initialization only.
     this->in_cb    = in_cb;
     this->out_cb   = out_cb;
     this->flush_cb = flush_cb;
@@ -289,18 +292,23 @@ void DMAChannel::update_irq() {
                 }
             }
             if (cond) {
-                if (int_ctrl) {
+                if (this->defer_irq_mode) {
+                    this->deferred_irq_pending = true;
+                } else if (int_ctrl) {
                     TimerManager::get_instance()->add_immediate_timer([this] {
                         this->int_ctrl->ack_dma_int(this->irq_id, 1);
                     });
-                } else
+                } else {
                     LOG_F(ERROR, "%s Interrupt ignored", this->get_name().c_str());
+                }
             }
         }
     }
 }
 
 uint32_t DMAChannel::reg_read(uint32_t offset, int size) {
+    std::lock_guard<std::recursive_mutex> lk(this->mtx);
+
     uint32_t result = 0;
 
     switch (offset & ~3) {
@@ -334,6 +342,8 @@ uint32_t DMAChannel::reg_read(uint32_t offset, int size) {
 }
 
 void DMAChannel::reg_write(uint32_t offset, uint32_t value, int size) {
+    std::lock_guard<std::recursive_mutex> lk(this->mtx);
+
     uint16_t mask, old_stat, new_stat;
 
     if (size != 4) {
@@ -463,6 +473,8 @@ void DMAChannel::xfer_to_device() {
     this->interpret_cmd();
 }
 
+// Called while DMA mutex is held (via interpret_cmd).
+// May run on the audio thread transitively through pull_data.
 void DMAChannel::xfer_retry() {
     if (this->xfer_dir == DMA_DIR_UNDEF)
         return;
@@ -473,6 +485,8 @@ void DMAChannel::xfer_retry() {
         this->xfer_to_device();
 }
 
+// Called while DMA mutex is held (via interpret_cmd).
+// May run on the audio thread transitively through pull_data.
 bool DMAChannel::is_ready() {
     if (this->ch_stat   & CH_STAT_DEAD  || !(this->ch_stat  & CH_STAT_ACTIVE) ||
         this->xfer_dir == DMA_DIR_UNDEF ||   this->cur_cmd >= DBDMA_Cmd::NOP)
@@ -483,43 +497,79 @@ bool DMAChannel::is_ready() {
 
 DmaPullResult DMAChannel::pull_data(uint32_t req_len, uint32_t *avail_len, uint8_t **p_data)
 {
+    // Called from CoreAudio's real-time thread (via cubeb) or the main thread.
+    // Uses a blocking lock — try_lock caused spurious NoMoreData returns when
+    // the main thread held the mutex, making the cubeb callback return 0 frames
+    // and permanently stopping the stream.
+    // defer_irq_mode still handles the TimerManager nesting concern: IRQ posts
+    // are deferred until after mtx is released so we never call TimerManager
+    // while holding this lock.
+    DmaPullResult result;
+    bool post_deferred_irq = false;
+
     *avail_len = 0;
 
-    if (this->ch_stat & CH_STAT_DEAD || !(this->ch_stat & CH_STAT_ACTIVE)) {
-        // dead or idle channel? -> no more data
-        LOG_F(WARNING, "%s: Dead/idle channel -> no more data", this->get_name().c_str());
-        return DmaPullResult::NoMoreData;
-    }
+    do {
+        std::unique_lock<std::recursive_mutex> lk(this->mtx);
 
-    // interpret DBDMA program until we get data or become idle
-    while ((this->ch_stat & CH_STAT_ACTIVE) && !this->queue_len) {
-        this->interpret_cmd();
-    }
-
-    // dequeue data if any
-    if (this->queue_len) {
-        if (this->queue_len >= req_len) {
-            LOG_F(9, "%s: Return req_len = %d data", this->get_name().c_str(), req_len);
-            *p_data    = this->queue_data;
-            *avail_len = req_len;
-            this->queue_len -= req_len;
-            this->res_count += req_len;
-            this->queue_data += req_len;
-        } else { // return less data than req_len
-            LOG_F(9, "%s: Return queue_len = %d data", this->get_name().c_str(),
-                this->queue_len);
-            *p_data         = this->queue_data;
-            *avail_len      = this->queue_len;
-            this->res_count += this->queue_len;
-            this->queue_len = 0;
+        if (this->ch_stat & CH_STAT_DEAD || !(this->ch_stat & CH_STAT_ACTIVE)) {
+            LOG_F(WARNING, "%s: Dead/idle channel -> no more data", this->get_name().c_str());
+            result = DmaPullResult::NoMoreData;
+            break;
         }
-        return DmaPullResult::MoreData; // tell the caller there is more data
+
+        // Defer IRQ posting: interpret_cmd -> finish_cmd -> update_irq would
+        // otherwise call TimerManager while holding mtx.
+        this->defer_irq_mode = true;
+        this->deferred_irq_pending = false;
+
+        // interpret DBDMA program until we get data or become idle
+        while ((this->ch_stat & CH_STAT_ACTIVE) && !this->queue_len) {
+            this->interpret_cmd();
+        }
+
+        post_deferred_irq = this->deferred_irq_pending;
+        this->defer_irq_mode = false;
+
+        // dequeue data if any
+        if (this->queue_len) {
+            if (this->queue_len >= req_len) {
+                LOG_F(9, "%s: Return req_len = %d data", this->get_name().c_str(), req_len);
+                *p_data    = this->queue_data;
+                *avail_len = req_len;
+                this->queue_len -= req_len;
+                this->res_count += req_len;
+                this->queue_data += req_len;
+            } else {
+                LOG_F(9, "%s: Return queue_len = %d data", this->get_name().c_str(),
+                    this->queue_len);
+                *p_data         = this->queue_data;
+                *avail_len      = this->queue_len;
+                this->res_count += this->queue_len;
+                this->queue_len = 0;
+            }
+            // NOTE: *p_data points into guest physical RAM mapped by mmu_map_dma_mem.
+            // Remains valid after lock release because guest RAM is never unmapped.
+            result = DmaPullResult::MoreData;
+        } else {
+            result = DmaPullResult::NoMoreData;
+        }
+    } while (false);
+
+    // Post deferred IRQ notifications after releasing the DMA mutex.
+    // int_ctrl and irq_id are set at init and never modified.
+    if (post_deferred_irq && this->int_ctrl) {
+        TimerManager::get_instance()->add_immediate_timer([this] {
+            this->int_ctrl->ack_dma_int(this->irq_id, 1);
+        });
     }
 
-    return DmaPullResult::NoMoreData; // tell the caller there is no more data
+    return result;
 }
 
 int DMAChannel::push_data(const char* src_ptr, int len) {
+    std::lock_guard<std::recursive_mutex> lk(this->mtx);
+
     if (this->ch_stat & CH_STAT_DEAD || !(this->ch_stat & CH_STAT_ACTIVE)) {
         LOG_F(WARNING, "%s: attempt to push data to dead/idle channel",
             this->get_name().c_str());
@@ -548,6 +598,8 @@ int DMAChannel::push_data(const char* src_ptr, int len) {
 }
 
 void DMAChannel::end_pull_data() {
+    std::lock_guard<std::recursive_mutex> lk(this->mtx);
+
     if (this->ch_stat & CH_STAT_DEAD || !(this->ch_stat & CH_STAT_ACTIVE)) {
         // dead or idle channel? -> no more data
         LOG_F(WARNING, "%s: Ending Dead/idle channel -> no more data",
@@ -566,6 +618,8 @@ void DMAChannel::end_pull_data() {
 }
 
 void DMAChannel::end_push_data() {
+    std::lock_guard<std::recursive_mutex> lk(this->mtx);
+
     if (this->ch_stat & CH_STAT_DEAD || !(this->ch_stat & CH_STAT_ACTIVE)) {
         LOG_F(WARNING, "%s: Attempt to end push data to dead/idle channel",
             this->get_name().c_str());
@@ -583,21 +637,22 @@ void DMAChannel::end_push_data() {
 }
 
 bool DMAChannel::is_out_active() {
-    if (this->ch_stat & CH_STAT_DEAD || !(this->ch_stat & CH_STAT_ACTIVE)) {
+    // Use try_lock: called from CoreAudio's RT thread.  If contended,
+    // report inactive so the audio callback produces silence rather
+    // than blocking and risking a priority-inversion glitch.
+    std::unique_lock<std::recursive_mutex> lk(this->mtx, std::try_to_lock);
+    if (!lk.owns_lock())
         return false;
-    }
-    else {
-        return true;
-    }
+
+    return !(this->ch_stat & CH_STAT_DEAD) && (this->ch_stat & CH_STAT_ACTIVE);
 }
 
 bool DMAChannel::is_in_active() {
-    if (this->ch_stat & CH_STAT_DEAD || !(this->ch_stat & CH_STAT_ACTIVE)) {
+    std::unique_lock<std::recursive_mutex> lk(this->mtx, std::try_to_lock);
+    if (!lk.owns_lock())
         return false;
-    }
-    else {
-        return true;
-    }
+
+    return !(this->ch_stat & CH_STAT_DEAD) && (this->ch_stat & CH_STAT_ACTIVE);
 }
 
 void DMAChannel::start() {

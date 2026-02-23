@@ -492,9 +492,7 @@ struct BenchWatchdog {
             while (!stop.load(std::memory_order_relaxed)) {
                 if (std::chrono::steady_clock::now() > deadline) {
                     triggered.store(true, std::memory_order_relaxed);
-                    // Avoid data race on global `power_on` by using atomic_ref shim.
-                    std::atomic_ref<bool> power_on_atomic(power_on);
-                    power_on_atomic.store(false, std::memory_order_relaxed);
+                    power_on.store(false, std::memory_order_relaxed);
                     break;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));

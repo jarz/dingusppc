@@ -281,6 +281,33 @@ if (DPPC_BUILD_CUDA_TESTS)
     add_test(NAME testcuda COMMAND testcuda)
 endif()
 
+option(DPPC_BUILD_THREAD_TESTS "Build thread safety tests" OFF)
+
+if (DPPC_BUILD_THREAD_TESTS)
+    add_executable(testthread tests/test_thread_safety.cpp
+                                           $<TARGET_OBJECTS:core>
+                                           $<TARGET_OBJECTS:cpu_ppc>
+                                           $<TARGET_OBJECTS:debugger>
+                                           $<TARGET_OBJECTS:devices>
+                                           $<TARGET_OBJECTS:machines>
+                                           $<TARGET_OBJECTS:utils>
+                                           $<TARGET_OBJECTS:loguru>)
+
+    if (WIN32)
+        target_link_libraries(testthread PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(testthread PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(testthread PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(testthread PRIVATE capstone)
+    endif()
+
+    add_test(NAME testthread COMMAND testthread)
+endif()
+
 if (DPPC_BUILD_BENCHMARKS)
     add_compile_options("-DPPC_BENCHMARKS")
 

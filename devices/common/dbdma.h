@@ -24,6 +24,41 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     Official documentation can be found in the fifth chapter of the book
     "Macintosh Technology in the Common Hardware Reference Platform"
     by Apple Computer, Inc.
+
+    Threading model:
+    ----------------
+    DMAChannel is accessed from two threads:
+      - Main thread: reg_read, reg_write, set_stat, set_callbacks,
+        set_data_callbacks, push_data, end_push_data, end_pull_data.
+      - Audio thread (CoreAudio via cubeb): is_out_active, pull_data,
+        get_pull_data_remaining.
+
+    is_ready and xfer_retry are called transitively from both threads
+    via interpret_cmd while the DMA mutex is already held.
+
+    Public methods are protected by `mtx` (a std::recursive_mutex).
+    It is recursive because device callbacks invoked during DMA execution
+    (start_cb → Sc53C94::dma_start → real_dma_xfer_in → push_data) can
+    re-enter locked public methods on the same channel from the main thread.
+
+    Audio-thread methods (is_out_active, is_in_active) use try_lock to avoid
+    priority inversion on the RT thread — if the lock is contended they return
+    false rather than blocking.  try_lock on a recursive_mutex held by a
+    *different* thread still fails, so RT try-lock fallback is unaffected.
+
+    pull_data uses a blocking lock so the cubeb callback always gets data or
+    a legitimate NoMoreData result, and never stops the stream due to spurious
+    lock contention.  IRQ notifications are deferred until after mtx is released
+    (via defer_irq_mode) to avoid calling TimerManager while holding this lock.
+
+    Lock ordering: mtx → TimerManager::recursive_mutex.  Timer callbacks
+    MUST NOT acquire DMAChannel::mtx to avoid deadlock.
+
+    The data pointer returned by pull_data points into guest physical RAM
+    (via mmu_map_dma_mem).  Guest RAM mappings are stable during emulation,
+    so the pointer remains valid after the lock is released.  mmu_map_dma_mem
+    is also called from the audio thread under the lock; this is safe because
+    DMA buffer mappings are established at init time and never modified.
  */
 
 #ifndef DB_DMA_H
@@ -33,6 +68,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include <cinttypes>
 #include <functional>
+#include <mutex>
 
 class InterruptCtrl;
 
@@ -112,19 +148,23 @@ public:
     void set_data_callbacks(DbdmaCallback in_cb, DbdmaCallback out_cb, DbdmaCallback flush_cb);
     uint32_t reg_read(uint32_t offset, int size);
     void reg_write(uint32_t offset, uint32_t value, int size);
-    void set_stat(uint8_t new_stat) { this->ch_stat = (this->ch_stat & 0xff00) | new_stat; }
+    void set_stat(uint8_t new_stat) { std::lock_guard<std::recursive_mutex> lk(mtx); this->ch_stat = (this->ch_stat & 0xff00) | new_stat; }
 
     bool            is_out_active() override;
     bool            is_in_active() override;
     DmaPullResult   pull_data(uint32_t req_len, uint32_t *avail_len, uint8_t **p_data) override;
     int             push_data(const char* src_ptr, int len) override;
-    int             get_pull_data_remaining() override { return this->queue_len; }
-    int             get_push_data_remaining() override { return this->queue_len; }
+    int             get_pull_data_remaining() override { std::lock_guard<std::recursive_mutex> lk(mtx); return this->queue_len; }
+    int             get_push_data_remaining() override { std::lock_guard<std::recursive_mutex> lk(mtx); return this->queue_len; }
     void            end_pull_data() override;
     void            end_push_data() override;
 
     bool            is_ready() override;
     void            xfer_retry() override;
+
+    // Returns a reference to the channel mutex. Callers that access DMA state
+    // from a non-main thread (e.g. cubeb audio callback) MUST hold this lock.
+    std::recursive_mutex& get_mutex() { return this->mtx; }
 
     void register_dma_int(InterruptCtrl* int_ctrl_obj, uint64_t irq_id) {
         this->int_ctrl = int_ctrl_obj;
@@ -164,9 +204,20 @@ private:
     bool     cmd_in_progress = false;
     uint8_t  cur_cmd;
 
+    // When true, update_irq() records pending IRQs instead of calling
+    // TimerManager.  Used by pull_data() to defer IRQ posting until
+    // after the DMA mutex is released (avoids RT priority inversion).
+    bool     defer_irq_mode = false;
+    bool     deferred_irq_pending = false;
+
     // Interrupt related stuff
     InterruptCtrl* int_ctrl = nullptr;
     uint64_t       irq_id   = 0;
+
+    // Protects DMA channel state accessed from the cubeb audio thread.
+    // Must be recursive: device callbacks called during DMA execution can
+    // re-enter public methods (push_data etc.) on the same channel from the main thread.
+    std::recursive_mutex mtx;
 };
 
 #endif // DB_DMA_H
