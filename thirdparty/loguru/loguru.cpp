@@ -78,7 +78,13 @@
 
 // TODO: use defined(_POSIX_VERSION) for some of these things?
 
-#if defined(_WIN32) || defined(__CYGWIN__)
+#if defined(__EMSCRIPTEN__)
+	#define LOGURU_PTHREADS    0
+	#define LOGURU_WINTHREADS  0
+	#ifndef LOGURU_STACKTRACES
+		#define LOGURU_STACKTRACES 0
+	#endif
+#elif defined(_WIN32) || defined(__CYGWIN__)
 	#define LOGURU_PTHREADS    0
 	#define LOGURU_WINTHREADS  1
 	#ifndef LOGURU_STACKTRACES
