@@ -353,13 +353,20 @@ enum Po_Cause : int {
     po_enter_debugger,
     po_entered_debugger,
     po_signal_interrupt,
-    po_benchmark_exception
+    po_benchmark_exception,
+    po_endian_switch
 };
 
-extern bool power_on;
-extern Po_Cause power_off_reason;
-extern bool int_pin;
-extern bool dec_exception_pending;
+extern std::atomic<bool> power_on;
+extern std::atomic<Po_Cause> power_off_reason;
+extern std::atomic<bool> int_pin;
+extern std::atomic<bool> dec_exception_pending;
+
+// These atomics are used from signal handlers (SIGINT) so they must be lock-free.
+static_assert(std::atomic<bool>::is_always_lock_free,
+              "std::atomic<bool> must be lock-free for signal handler safety");
+static_assert(std::atomic<Po_Cause>::is_always_lock_free,
+              "std::atomic<Po_Cause> must be lock-free for signal handler safety");
 
 extern bool is_601;        // For PowerPC 601 Emulation
 extern bool include_601;   // For non-PowerPC 601 emulation with 601 extras

@@ -61,19 +61,29 @@ bool include_601 = false;
 
 bool is_deterministic = false;
 
-bool power_on = false;
-Po_Cause power_off_reason = po_enter_debugger;
+// power_on is written by VIA CUDA, host events, debugger (potentially from different threads)
+// and read by CPU execution loops - std::atomic ensures thread safety
+std::atomic<bool> power_on{false};
+// power_off_reason is written from signal handler (SIGINT), SDL events, VIA CUDA.
+// std::atomic<Po_Cause> preserves type safety.  The two-store pattern
+// (power_on = false; power_off_reason = X) is intentionally non-atomic as a pair —
+// readers tolerate seeing them in either order.
+std::atomic<Po_Cause> power_off_reason{po_enter_debugger};
 
 SetPRS ppc_state;
 
 uint32_t ppc_next_instruction_address;    // Used for branching, setting up the NIA
 
 unsigned exec_flags; // execution control flags
-// FIXME: exec_timer is read by main thread ppc_main_opcode;
-// written by audio dbdma DMAChannel::update_irq .. add_immediate_timer
-volatile bool exec_timer;
-bool int_pin = false; // interrupt request pin state: true - asserted
-bool dec_exception_pending = false;
+// exec_timer is set by timer callbacks (via force_cycle_counter_reload) and
+// read by the main CPU execution loop - std::atomic ensures thread safety
+std::atomic<bool> exec_timer;
+// int_pin is set by interrupt controllers (potentially from DBDMA/timer callbacks)
+// and read by CPU exception handling - std::atomic ensures thread safety
+std::atomic<bool> int_pin{false};
+// dec_exception_pending is set by decrementer timer callbacks and
+// read by CPU execution - std::atomic ensures thread safety  
+std::atomic<bool> dec_exception_pending{false};
 
 /* copy of local variable bb_start_la. Need for correct
    calculation of CPU cycles after setjmp that clobbers
