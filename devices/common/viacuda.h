@@ -67,7 +67,7 @@ enum {
     VIA_T2CH = 0x09, // high-order timer 2 counter
     VIA_SR   = 0x0A, // shift register
     VIA_ACR  = 0x0B, // auxiliary control register
-    VIA_PCR  = 0x0C, // periheral control register
+    VIA_PCR  = 0x0C, // peripheral control register
     VIA_IFR  = 0x0D, // interrupt flag register
     VIA_IER  = 0x0E, // interrupt enable register
     VIA_ANH  = 0x0F, // input/output register A, no handshake
@@ -116,6 +116,9 @@ enum {
     CUDA_START_STOP_AUTOPOLL = 0x01, // start/stop device auto-polling
     CUDA_READ_MCU_MEM        = 0x02, // read internal Cuda memory
     CUDA_GET_REAL_TIME       = 0x03, // get real time
+    CUDA_GET_ROM_SIZE        = 0x04, // get ROM size
+    CUDA_GET_ROM_BASE        = 0x05, // get ROM base address
+    CUDA_GET_ROM_HEADER      = 0x06, // get ROM header address
     CUDA_READ_PRAM           = 0x07, // read parameter RAM
     CUDA_WRITE_MCU_MEM       = 0x08, // write internal Cuda memory
     CUDA_SET_REAL_TIME       = 0x09, // set real time
@@ -124,18 +127,25 @@ enum {
     CUDA_WRITE_PRAM          = 0x0C, // write parameter RAM
     CUDA_MONO_STABLE_RESET   = 0x0D, // mono stable reset
     CUDA_SEND_DFAC           = 0x0E, // send dfac
+    CUDA_EXECUTE_DIAG        = 0x0F, // execute diagnostics
     CUDA_BATTERY_SWAP_SENSE  = 0x10, // battery swap sense
     CUDA_RESTART_SYSTEM      = 0x11, // restart system
     CUDA_SET_IPL_LEVEL       = 0x12, // set IPL level
     CUDA_FILE_SERVER_FLAG    = 0x13, // set file server flag
     CUDA_SET_AUTOPOLL_RATE   = 0x14, // set auto-polling rate
+    CUDA_GET_PRAM_SIZE       = 0x15, // get parameter RAM size
     CUDA_GET_AUTOPOLL_RATE   = 0x16, // get auto-polling rate
+    CUDA_SET_BUS_DELAY_CONST = 0x17, // set bus delay constant
+    CUDA_GET_BUS_DELAY_CONST = 0x18, // get bus delay constant
     CUDA_SET_DEVICE_BITMAP   = 0x19, // set device bitmap
     CUDA_GET_DEVICE_BITMAP   = 0x1A, // get device bitmap
     CUDA_ONE_SECOND_MODE     = 0x1B, // one second interrupt mode
+    CUDA_KBD_PROG_INT        = 0x1C, // enable/disable keyboard programmers interrupt
+    CUDA_POST_PARSE_R2A2     = 0x1D, // enable/disable post parse R2 A2
+    CUDA_SET_DEFAULT_DFAC    = 0x20, // set default DFAC string
     CUDA_SET_POWER_MESSAGES  = 0x21, // set power message flag
     CUDA_READ_WRITE_I2C      = 0x22, // read/write I2C
-    CUDE_TOGGLE_WAKEUP       = 0x23, // toggle wake-up
+    CUDA_TOGGLE_WAKEUP       = 0x23, // toggle wake-up
     CUDA_TIMER_TICKLE        = 0x24, // set timer tickle
     CUDA_COMB_FMT_I2C        = 0x25, // combined format I2C transaction
     CUDA_OUT_PB0             = 0x26, // output one bit to Cuda's PB0 line
@@ -164,6 +174,7 @@ constexpr auto CUDA_FW_VERSION_MAJOR = 0x0002;
 constexpr auto CUDA_FW_VERSION_MINOR = 0x0029;
 
 class ViaCuda : public I2CBus {
+friend class ViaCudaTest;
 public:
     ViaCuda();
     ~ViaCuda();
@@ -190,7 +201,7 @@ private:
     uint8_t  via_porta  = 0;
     uint8_t  via_ddrb   = 0;
     uint8_t  via_ddra   = 0;
-    uint8_t  via_sr;
+    uint8_t  via_sr     = 0;
     uint8_t  via_acr    = 0;
     uint8_t  via_pcr    = 0;
 
@@ -209,14 +220,14 @@ private:
     uint64_t t1_start_time = 0;
 
     // timer 2 state
-    uint8_t  via_t2ll;          // low-order latch (write-only)
+    uint8_t  via_t2ll = 0xFF;   // low-order latch (write-only)
     uint16_t t2_counter;        // internal counter
     uint32_t t2_timer_id = 0;
     uint64_t t2_start_time = 0;
 
     // VIA interrupt related stuff
     InterruptCtrl* int_ctrl = nullptr;
-    uint64_t       irq_id;
+    uint64_t       irq_id = 0;
     uint8_t        _via_ifr = 0;
     uint8_t        _via_ier = 0;
 
@@ -230,21 +241,30 @@ private:
     int32_t  in_count;
     uint8_t  out_buf[16];
     int32_t  out_count;
-    int32_t  out_pos;
+    int32_t  out_pos = 0;
     uint8_t  poll_rate;
     uint32_t last_time = 0;
     uint32_t time_offset = 0;
     std::chrono::time_point<std::chrono::system_clock> mac_epoch;
     uint8_t  one_sec_mode = 0;
-    bool     file_server;
+    bool     one_sec_first_pkt = true; // ERS: first one-sec pkt always mode $01
+    bool     one_sec_missed = false;   // ERS: missed pkt → fallback to mode $01
+    bool     file_server = false;
+    bool     mono_stable = false;
+    uint8_t  ipl_level = 0;
     uint16_t device_mask = 0;
 
-    bool        is_open_ended; // true if current transaction is open-ended
-    uint8_t     curr_i2c_addr; // current I2C address
-    uint8_t     cur_pram_addr; // current PRAM address, range 0...FF
+    bool        is_open_ended = false; // true if current transaction is open-ended
+    uint8_t     curr_i2c_addr = 0;     // current I2C address
+    uint8_t     cur_pram_addr = 0;     // current PRAM address, range 0...FF
+    uint8_t     bus_delay_constant = 0; // ADB bus delay in 100µS intervals
+    bool        kbd_prog_int_enabled = true;  // keyboard programmer's interrupt
+    bool        post_parse_r2a2_disabled = false; // post-parse R2 A2 flag
+    uint8_t     dfac_default_len = 0;  // default DFAC string length (0-4)
+    uint8_t     dfac_default_data[4] = {}; // default DFAC string data
 
-    void (ViaCuda::*out_handler)(void);
-    void (ViaCuda::*next_out_handler)(void);
+    void (ViaCuda::*out_handler)(void) = &ViaCuda::null_out_handler;
+    void (ViaCuda::*next_out_handler)(void) = &ViaCuda::null_out_handler;
 
     std::unique_ptr<NVram>   pram_obj;
 
