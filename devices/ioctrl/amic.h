@@ -32,6 +32,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <devices/video/pdmonboard.h>
 
 #include <atomic>
+#include <mutex>
 #include <cinttypes>
 #include <memory>
 
@@ -106,12 +107,12 @@ public:
     ~AmicSndOutDma() = default;
 
     void            init(uint32_t buf_base, uint32_t buf_samples);
-    void            enable()  { this->enabled = true;  }
-    void            disable() { this->enabled = false; }
+    void            enable()  { std::lock_guard<std::mutex> lk(mtx); this->enabled = true;  }
+    void            disable() { std::lock_guard<std::mutex> lk(mtx); this->enabled = false; }
     uint8_t         read_stat();
     void            update_irq();
     void            write_dma_out_ctrl(uint8_t value);
-    uint32_t        get_cur_buf_pos() { return this->cur_buf_pos; }
+    uint32_t        get_cur_buf_pos() { std::lock_guard<std::mutex> lk(mtx); return this->cur_buf_pos; }
     DmaPullResult   pull_data(uint32_t req_len, uint32_t *avail_len,
                               uint8_t **p_data);
 
@@ -119,6 +120,8 @@ public:
         this->int_ctrl = int_ctrl;
         this->snd_dma_irq_id = irq_id;
     }
+
+    std::mutex&     get_mutex() { return this->mtx; }
 
 private:
     bool            enabled = false;
@@ -133,6 +136,9 @@ private:
     InterruptCtrl   *int_ctrl = nullptr;
     uint64_t        snd_dma_irq_id = 0;
     uint8_t         irq_level = 0;
+
+    // Protects DMA state accessed from the cubeb audio callback thread
+    std::mutex      mtx;
 };
 
 /** AMIC-specific floppy DMA implementation. */
@@ -350,6 +356,10 @@ private:
     uint8_t     dev_irq_lines = 0; // state of the IRQ lines
 
     // DMA IRQ flag registers
+    // These are currently only accessed from the main thread (AMIC::read
+    // and ack_dma_int via TimerManager callbacks both run on the main thread).
+    // Atomic for defensive safety in case a future change introduces
+    // cross-thread access.
     std::atomic<uint8_t>     dma_ifr0{0};
     std::atomic<uint8_t>     dma_ifr1{0};
     uint8_t     dma_irq  = 0;

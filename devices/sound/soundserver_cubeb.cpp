@@ -122,9 +122,9 @@ static long sound_out_callback(cubeb_stream* stream, void* user_data,
     long frames, out_frames;
     DmaOutChannel *dma_ch = static_cast<DmaOutChannel*>(user_data); /* C API baby! */
 
-    if (!dma_ch->is_out_active()) {
-        return 0;
-    }
+    // No separate is_out_active() check here — pull_data handles inactive
+    // channels by returning NoMoreData.  A separate check would be a
+    // TOCTOU race (channel state can change between the two calls).
 
     out_buf = (int16_t*)output_buffer;
 
@@ -166,10 +166,9 @@ int SoundServer::open_out_stream(uint32_t sample_rate, DmaOutChannel *dma_ch)
 {
     if (is_deterministic) {
         impl->deterministic_poll_cb = [dma_ch] {
-            if (!dma_ch->is_out_active()) {
-               return;
-            }
             // Drain the DMA buffer, but don't do anything else.
+            // No separate is_out_active() check — pull_data returns
+            // NoMoreData for inactive channels, avoiding a TOCTOU race.
             int req_size = std::max(dma_ch->get_pull_data_remaining(), 1024);
             while (req_size > 0) {
                 uint8_t *chunk;

@@ -600,6 +600,8 @@ AmicSndOutDma::AmicSndOutDma() : DmaOutChannel("SndOut")
 
 void AmicSndOutDma::init(uint32_t buf_base, uint32_t buf_samples)
 {
+    std::lock_guard<std::mutex> lk(this->mtx);
+
     this->out_buf0 = buf_base + AMIC_SND_BUF0_OFFS;
     this->out_buf1 = buf_base + AMIC_SND_BUF1_OFFS;
 
@@ -612,6 +614,7 @@ void AmicSndOutDma::init(uint32_t buf_base, uint32_t buf_samples)
 
 uint8_t AmicSndOutDma::read_stat()
 {
+    std::lock_guard<std::mutex> lk(this->mtx);
     return this->dma_out_ctrl;
 }
 
@@ -627,6 +630,8 @@ void AmicSndOutDma::update_irq() {
 
 void AmicSndOutDma::write_dma_out_ctrl(uint8_t value)
 {
+    std::lock_guard<std::mutex> lk(this->mtx);
+
     // clear interrupt flags
     if (value & PDM_DMA_INTS_MASK) {
         this->dma_out_ctrl &= ~(value & PDM_DMA_INTS_MASK);
@@ -639,43 +644,73 @@ void AmicSndOutDma::write_dma_out_ctrl(uint8_t value)
 DmaPullResult AmicSndOutDma::pull_data(uint32_t req_len, uint32_t *avail_len,
                                        uint8_t **p_data)
 {
+    // Called from CoreAudio's real-time thread (via cubeb).
+    // Uses try_lock to avoid priority inversion on the DMA mutex;
+    // defers IRQ notification until after mutex release to avoid
+    // blocking on TimerManager's recursive_mutex.
+
+    DmaPullResult result;
+    bool post_irq = false;
+    uint8_t post_irq_level = 0;
+
     *avail_len = 0;
 
-    int rem_len = this->out_buf_len - this->cur_buf_pos;
-    if (rem_len <= 0) {
-        if (!this->snd_buf_num) {
-            // signal buffer 0 drained
-            this->dma_out_ctrl |= PDM_DMA_IF0;
-        } else {
-            // signal buffer 1 drained
-            this->dma_out_ctrl |= PDM_DMA_IF1;
+    do {
+        std::unique_lock<std::mutex> lk(this->mtx, std::try_to_lock);
+        if (!lk.owns_lock()) {
+            result = DmaPullResult::NoMoreData;
+            break;
         }
 
-        // generate sound out DMA interrupt if (IF0 & IE0)
-        // or (IF1 & IE1) or (ERR_IF & ERR_IE)
-        this->update_irq();
+        int rem_len = this->out_buf_len - this->cur_buf_pos;
+        if (rem_len <= 0) {
+            if (!this->snd_buf_num)
+                this->dma_out_ctrl |= PDM_DMA_IF0;
+            else
+                this->dma_out_ctrl |= PDM_DMA_IF1;
 
-        // check DMA enable flag after buffer 1 was processed
-        // if it's false stop delivering sound data
-        // this will effectively stop audio playback
-        if (this->snd_buf_num && !this->enabled) {
-            return DmaPullResult::NoMoreData;
+            // Inline of update_irq() logic — keep in sync.
+            // Deferred because TimerManager's mutex would cause
+            // priority inversion on the RT thread.
+            uint8_t new_level = !!((this->dma_out_ctrl >> 4) & this->dma_out_ctrl);
+            if (new_level != this->irq_level) {
+                this->irq_level = new_level;
+                post_irq = true;
+                post_irq_level = new_level;
+            }
+
+            if (this->snd_buf_num && !this->enabled) {
+                result = DmaPullResult::NoMoreData;
+                break;
+            }
+
+            this->cur_buf_pos = 0;
+            this->snd_buf_num ^= 1;
+            rem_len = this->out_buf_len;
         }
 
-        this->cur_buf_pos = 0;  // reset buffer position
-        this->snd_buf_num ^= 1; // toggle sound buffers
-        rem_len = this->out_buf_len; // buffer size = full buffer
+        uint32_t len = std::min((uint32_t)rem_len, req_len);
+        MapDmaResult res = mmu_map_dma_mem(
+            (this->snd_buf_num ? this->out_buf1 : this->out_buf0) + this->cur_buf_pos,
+            len, false);
+        // *p_data points into guest physical RAM; remains valid after
+        // lock release because guest RAM is never unmapped.
+        *p_data = res.host_va;
+        this->cur_buf_pos += len;
+        *avail_len = len;
+        result = DmaPullResult::MoreData;
+    } while (false);
+
+    // Post deferred IRQ notification after releasing the DMA mutex.
+    // int_ctrl and snd_dma_irq_id are set at init and never modified.
+    if (post_irq) {
+        TimerManager::get_instance()->add_immediate_timer(
+            [this, post_irq_level] {
+                this->int_ctrl->ack_dma_int(this->snd_dma_irq_id, post_irq_level);
+            });
     }
 
-    uint32_t len = std::min((uint32_t)rem_len, req_len);
-
-    MapDmaResult res = mmu_map_dma_mem(
-        (this->snd_buf_num ? this->out_buf1 : this->out_buf0) + this->cur_buf_pos,
-        len, false);
-    *p_data = res.host_va;
-    this->cur_buf_pos += len;
-    *avail_len = len;
-    return DmaPullResult::MoreData;
+    return result;
 }
 
 // ============================ Floppy DMA stuff ===============================
