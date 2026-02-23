@@ -64,7 +64,7 @@ ViaCuda::ViaCuda() : I2CBus() {
     this->_via_ifr  = 0; // all flags cleared
     this->_via_ier  = 0; // all interrupts disabled
 
-    // intialize counters/timers
+    // initialize counters/timers
     this->t1_counter  = 0xFFFF;
     this->t2_counter  = 0xFFFF;
 
@@ -567,11 +567,11 @@ template void ViaCuda::append_data(uint16_t data);
 template void ViaCuda::append_data(uint32_t data);
 
 void ViaCuda::process_adb_command() {
-    uint8_t adb_stat, output_size;
+    uint8_t adb_stat;
 
     adb_stat = this->adb_bus_obj->process_command(&this->in_buf[1],
                                                   this->in_count - 1);
-    response_header(CUDA_PKT_ADB, adb_stat);
+    response_header(CUDA_PKT_ADB, adb_stat | ADB_STAT_RESPONSE);
     this->append_data(this->adb_bus_obj->get_output_buf(), this->adb_bus_obj->get_output_count());
 }
 
@@ -581,18 +581,28 @@ void ViaCuda::autopoll_handler() {
         this->do_post_keyboard_state_events = false;
     }
 
-    // Don't start async packets while a transaction is in progress
-    // or Cuda already has unsent data (TREQ asserted).
-    // Events stay queued in ADB devices until the bus is idle.
-    if (!this->old_tip || !this->treq) {
+    // Don't send async packets while the host has TIP asserted — that
+    // means an active byte transfer is in progress in either direction.
+    // The real Cuda is single-threaded and would never enter its idle
+    // loop during a transaction.
+    if (!this->old_tip) {
         return;
     }
 
     uint8_t poll_command = this->autopoll_enabled ? this->adb_bus_obj->poll() : 0;
 
     if (poll_command) {
+        // Autopoll data takes priority over pending async responses.
+        // Cancel any pending TREQ assertion timer from a just-completed
+        // command so the autopoll packet is delivered instead. The host
+        // OS handles this by retrying the aborted command.
+        if (this->treq_timer_id) {
+            TimerManager::get_instance()->cancel_timer(this->treq_timer_id);
+            this->treq_timer_id = 0;
+        }
+
         // prepare autopoll packet
-        response_header(CUDA_PKT_ADB, ADB_STAT_OK | ADB_STAT_AUTOPOLL);
+        response_header(CUDA_PKT_ADB, ADB_STAT_OK | ADB_STAT_AUTOPOLL | ADB_STAT_RESPONSE);
         this->out_buf[2] = poll_command; // put the proper ADB command
         this->append_data(this->adb_bus_obj->get_output_buf(), this->adb_bus_obj->get_output_count());
 
@@ -604,23 +614,38 @@ void ViaCuda::autopoll_handler() {
         schedule_sr_int(USECS_TO_NSECS(30));
     } else if (this->one_sec_mode != 0) {
         uint32_t this_time = calc_real_time();
+
+        // Don't send one-second packets if a command response is pending.
+        // Unlike autopoll, time packets are not urgent enough to preempt.
+        if (!this->treq || this->treq_timer_id) {
+            // ERS: track missed ticks for mode $02/$03 fallback
+            if (this_time != this->last_time)
+                this->one_sec_missed = true;
+            return;
+        }
+
         if (this_time != this->last_time) {
-            /*
-                We'll send a time packet every 4
-                seconds just in case we get out of
-                sync.
-            */
+            // ERS: first one-sec packet after mode change is always mode $01;
+            // missed packets also fall back to mode $01.
+            bool force_full = this->one_sec_first_pkt || this->one_sec_missed;
             bool send_time = !(this->last_time & 3);
-            if (send_time || this->one_sec_mode < 3) {
+
+            if (force_full || send_time || this->one_sec_mode == 1) {
+                // Mode $01 (or fallback): full header + 4-byte RTC
                 response_header(CUDA_PKT_PSEUDO, 0);
                 this->out_buf[2] = CUDA_GET_REAL_TIME;
-                if (send_time || this->one_sec_mode == 1) {
-                    uint32_t real_time = this_time + this->time_offset;
-                    this->append_data(real_time);
-                }
+                uint32_t real_time = this_time + this->time_offset;
+                this->append_data(real_time);
+            } else if (this->one_sec_mode == 2) {
+                // Mode $02: header only (no time data)
+                response_header(CUDA_PKT_PSEUDO, 0);
+                this->out_buf[2] = CUDA_GET_REAL_TIME;
             } else if (this->one_sec_mode == 3) {
+                // Mode $03: truncated — attention + type only
                 one_byte_header(CUDA_PKT_TICK);
             }
+            this->one_sec_first_pkt = false;
+            this->one_sec_missed = false;
             this->last_time = this_time;
 
             // assert TREQ
@@ -640,6 +665,8 @@ void ViaCuda::disable_async_packets() {
 
     // disable one second packets
     this->one_sec_mode = 0;
+    this->one_sec_first_pkt = true;
+    this->one_sec_missed = false;
 }
 
 void ViaCuda::pseudo_command() {
@@ -661,7 +688,7 @@ void ViaCuda::pseudo_command() {
         response_header(CUDA_PKT_PSEUDO, 0);
         break;
     case CUDA_READ_MCU_MEM:
-        addr = READ_WORD_BE_A(&this->in_buf[2]);
+        addr = READ_WORD_BE_U(&this->in_buf[2]);
         response_header(CUDA_PKT_PSEUDO, 0);
         // if starting address is within PRAM region
         // prepare to transfer PRAM content, otherwise we will send zeroes
@@ -669,7 +696,7 @@ void ViaCuda::pseudo_command() {
             this->cur_pram_addr    = addr - CUDA_PRAM_START;
             this->next_out_handler = &ViaCuda::pram_out_handler;
         } else if (addr >= CUDA_ROM_START) {
-            // HACK: Cuda ROM dump requsted so let's partially fake it
+            // HACK: Cuda ROM dump requested so let's partially fake it
             this->append_data(uint8_t(0)); // empty copyright string
             this->append_data(uint16_t(0x0019U));
             this->append_data(uint16_t(CUDA_FW_VERSION_MAJOR));
@@ -685,7 +712,7 @@ void ViaCuda::pseudo_command() {
         break;
     }
     case CUDA_WRITE_MCU_MEM:
-        addr = READ_WORD_BE_A(&this->in_buf[2]);
+        addr = READ_WORD_BE_U(&this->in_buf[2]);
         // if addr is inside PRAM, update PRAM with data from in_buf
         // otherwise, ignore data in in_buf
         if (addr >= CUDA_PRAM_START && addr <= CUDA_PRAM_END) {
@@ -697,7 +724,7 @@ void ViaCuda::pseudo_command() {
         response_header(CUDA_PKT_PSEUDO, 0);
         break;
     case CUDA_READ_PRAM:
-        addr = READ_WORD_BE_A(&this->in_buf[2]);
+        addr = READ_WORD_BE_U(&this->in_buf[2]);
         if (addr <= 0xFF) {
             response_header(CUDA_PKT_PSEUDO, 0);
             // this command is open-ended so set up the corresponding context
@@ -716,7 +743,7 @@ void ViaCuda::pseudo_command() {
         break;
     }
     case CUDA_WRITE_PRAM:
-        addr = READ_WORD_BE_A(&this->in_buf[2]);
+        addr = READ_WORD_BE_U(&this->in_buf[2]);
         if (addr <= 0xFF) {
             // transfer data from in_buf to PRAM
             for (i = 0; i < this->in_count - 4; i++) {
@@ -757,6 +784,7 @@ void ViaCuda::pseudo_command() {
     case CUDA_ONE_SECOND_MODE:
         LOG_F(INFO, "Cuda: One Second Interrupt Mode: %d", this->in_buf[2]);
         this->one_sec_mode = this->in_buf[2];
+        this->one_sec_first_pkt = true;
         response_header(CUDA_PKT_PSEUDO, 0);
         break;
     case CUDA_SET_POWER_MESSAGES:
@@ -793,10 +821,95 @@ void ViaCuda::pseudo_command() {
         power_off_reason = po_shut_down;
         break;
     case CUDA_WARM_START:
+        LOG_F(INFO, "Cuda: Warm Start — disabling async packets");
+        this->disable_async_packets();
+        response_header(CUDA_PKT_PSEUDO, 0);
+        break;
     case CUDA_MONO_STABLE_RESET:
-        /* really kludge temp code */
-        LOG_F(INFO, "Cuda: Restart/Shutdown signal sent with command 0x%x!", cmd);
-        //exit(0);
+        this->mono_stable = !!this->in_buf[2];
+        LOG_F(INFO, "Cuda: Monostable Reset %s", this->mono_stable ? "set" : "cleared");
+        response_header(CUDA_PKT_PSEUDO, 0);
+        break;
+    case CUDA_SET_POWER_UPTIME: {
+        uint32_t alarm_time = READ_DWORD_BE_U(&this->in_buf[2]);
+        LOG_F(INFO, "Cuda: Set Power-Up Alarm to 0x%08X", alarm_time);
+        response_header(CUDA_PKT_PSEUDO, 0);
+        break;
+    }
+    case CUDA_SEND_DFAC:
+        LOG_F(INFO, "Cuda: Send DFAC data (%d bytes)", this->in_count - 2);
+        response_header(CUDA_PKT_PSEUDO, 0);
+        break;
+    case CUDA_EXECUTE_DIAG:
+        // ERS: returns pseudo type + diagnostic flag + command + 2 bytes result
+        // Return no-error: flag=0, result=0x0000
+        response_header(CUDA_PKT_PSEUDO, 0);
+        this->append_data(uint16_t(0)); // diagnostic result (no error)
+        break;
+    case CUDA_BATTERY_SWAP_SENSE:
+        response_header(CUDA_PKT_PSEUDO, 0);
+        this->append_data(uint8_t(0)); // 0 = no battery swap detected
+        break;
+    case CUDA_SET_IPL_LEVEL:
+        this->ipl_level = this->in_buf[2];
+        LOG_F(INFO, "Cuda: Set IPL level to %d", this->ipl_level);
+        response_header(CUDA_PKT_PSEUDO, 0);
+        break;
+    case CUDA_GET_ROM_SIZE:
+        response_header(CUDA_PKT_PSEUDO, 0);
+        this->append_data(uint16_t(0x1000)); // 4096 bytes ROM
+        break;
+    case CUDA_GET_ROM_BASE:
+        response_header(CUDA_PKT_PSEUDO, 0);
+        this->append_data(uint16_t(CUDA_ROM_START));
+        break;
+    case CUDA_GET_ROM_HEADER:
+        response_header(CUDA_PKT_PSEUDO, 0);
+        this->append_data(uint16_t(CUDA_ROM_START));
+        break;
+    case CUDA_GET_PRAM_SIZE:
+        response_header(CUDA_PKT_PSEUDO, 0);
+        this->append_data(uint16_t(CUDA_PRAM_END - CUDA_PRAM_START + 1)); // 256 bytes
+        break;
+    case 0x1E: // ERS: undefined but returns standard response
+    case 0x1F:
+        response_header(CUDA_PKT_PSEUDO, 0);
+        break;
+    case CUDA_SET_DEFAULT_DFAC:
+        if (this->in_count >= 3) {
+            this->dfac_default_len = this->in_buf[2];
+            if (this->dfac_default_len > 4)
+                this->dfac_default_len = 4;
+            for (int j = 0; j < this->dfac_default_len && (3 + j) < this->in_count; j++)
+                this->dfac_default_data[j] = this->in_buf[3 + j];
+        }
+        LOG_F(INFO, "Cuda: Set Default DFAC string (len=%d)", this->dfac_default_len);
+        response_header(CUDA_PKT_PSEUDO, 0);
+        break;
+    case CUDA_SET_BUS_DELAY_CONST:
+        this->bus_delay_constant = this->in_buf[2];
+        LOG_F(INFO, "Cuda: Set Bus Delay Constant to %d", this->bus_delay_constant);
+        response_header(CUDA_PKT_PSEUDO, 0);
+        break;
+    case CUDA_GET_BUS_DELAY_CONST:
+        response_header(CUDA_PKT_PSEUDO, 0);
+        this->append_data(this->bus_delay_constant);
+        break;
+    case CUDA_KBD_PROG_INT:
+        this->kbd_prog_int_enabled = !!this->in_buf[2];
+        LOG_F(INFO, "Cuda: Keyboard Programmers Interrupt %s",
+              this->kbd_prog_int_enabled ? "enabled" : "disabled");
+        response_header(CUDA_PKT_PSEUDO, 0);
+        break;
+    case CUDA_POST_PARSE_R2A2:
+        this->post_parse_r2a2_disabled = !!this->in_buf[2];
+        LOG_F(INFO, "Cuda: Post Parse R2 A2 %s",
+              this->post_parse_r2a2_disabled ? "disabled" : "enabled");
+        response_header(CUDA_PKT_PSEUDO, 0);
+        break;
+    case CUDA_TOGGLE_WAKEUP:
+        LOG_F(INFO, "Cuda: Toggle Wakeup");
+        response_header(CUDA_PKT_PSEUDO, 0);
         break;
     default:
         LOG_F(ERROR, "Cuda: unsupported pseudo command 0x%X", cmd);

@@ -245,6 +245,33 @@ if (DPPC_BUILD_PPC_TESTS)
     endif()
 endif()
 
+option(DPPC_BUILD_CUDA_TESTS "Build ViaCuda tests" OFF)
+
+if (DPPC_BUILD_CUDA_TESTS)
+    add_executable(testcuda tests/test_viacuda.cpp
+                                           $<TARGET_OBJECTS:core>
+                                           $<TARGET_OBJECTS:cpu_ppc>
+                                           $<TARGET_OBJECTS:debugger>
+                                           $<TARGET_OBJECTS:devices>
+                                           $<TARGET_OBJECTS:machines>
+                                           $<TARGET_OBJECTS:utils>
+                                           $<TARGET_OBJECTS:loguru>)
+
+    if (WIN32)
+        target_link_libraries(testcuda PRIVATE SDL2::SDL2 cubeb)
+        target_compile_definitions(testcuda PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(testcuda PRIVATE SDL2::SDL2main SDL2::SDL2 cubeb
+                                    ${CMAKE_DL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+
+    if (DPPC_68K_DEBUGGER)
+        target_link_libraries(testcuda PRIVATE capstone)
+    endif()
+
+    add_test(NAME testcuda COMMAND testcuda)
+endif()
+
 if (DPPC_BUILD_BENCHMARKS)
     add_compile_options("-DPPC_BENCHMARKS")
     file(GLOB BENCH_SOURCES "${PROJECT_SOURCE_DIR}/benchmark/*.cpp"
