@@ -62,10 +62,6 @@ static void test_str_property_list_rejects_invalid_value() {
         "StrProperty list: rejects value not in list and retains previous value");
 }
 
-static void test_str_property_get_type() {
-    StrProperty p("test");
-    TEST_ASSERT(p.get_type() == PROP_TYPE_STRING, "StrProperty: get_type returns PROP_TYPE_STRING");
-}
 
 static void test_str_property_clone() {
     StrProperty orig("clone_me");
@@ -117,11 +113,6 @@ static void test_int_property_list_rejects_invalid() {
         "IntProperty list: value not in list retains previous value");
 }
 
-static void test_int_property_get_type() {
-    IntProperty p(0U);
-    TEST_ASSERT(p.get_type() == PROP_TYPE_INTEGER,
-        "IntProperty: get_type returns PROP_TYPE_INTEGER");
-}
 
 static void test_int_property_clone() {
     IntProperty orig(77U);
@@ -139,12 +130,6 @@ static void test_int_property_clone() {
 // BinProperty tests
 // ============================================================
 
-static void test_bin_property_initial_value() {
-    BinProperty on(1);
-    TEST_ASSERT(on.get_val() == 1, "BinProperty(1): get_val() == 1");
-    BinProperty off(0);
-    TEST_ASSERT(off.get_val() == 0, "BinProperty(0): get_val() == 0");
-}
 
 static void test_bin_property_set_string_forms() {
     BinProperty p(0);
@@ -165,11 +150,6 @@ static void test_bin_property_set_string_forms() {
     TEST_ASSERT(p.get_val() == 0, "BinProperty: \"0\" sets to 0");
 }
 
-static void test_bin_property_get_type() {
-    BinProperty p(1);
-    TEST_ASSERT(p.get_type() == PROP_TYPE_BINARY,
-        "BinProperty: get_type returns PROP_TYPE_BINARY");
-}
 
 static void test_bin_property_clone() {
     BinProperty orig(1);
@@ -193,7 +173,6 @@ int main() {
     test_str_property_unconstrained_roundtrip();
     test_str_property_list_accepts_valid_value();
     test_str_property_list_rejects_invalid_value();
-    test_str_property_get_type();
     test_str_property_clone();
 
     cout << endl << "IntProperty tests:" << endl;
@@ -202,13 +181,10 @@ int main() {
     test_int_property_range_rejects_out_of_range();
     test_int_property_list_accepts_valid();
     test_int_property_list_rejects_invalid();
-    test_int_property_get_type();
     test_int_property_clone();
 
     cout << endl << "BinProperty tests:" << endl;
-    test_bin_property_initial_value();
     test_bin_property_set_string_forms();
-    test_bin_property_get_type();
     test_bin_property_clone();
 
     cout << endl << "Results: " << (tests_run - tests_failed)

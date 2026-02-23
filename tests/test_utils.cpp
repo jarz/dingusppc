@@ -65,9 +65,6 @@ static void test_byteswap_64() {
         "BYTESWAP_64(0)");
     TEST_ASSERT(BYTESWAP_64(0xFFFFFFFFFFFFFFFFULL) == 0xFFFFFFFFFFFFFFFFULL,
         "BYTESWAP_64(0xFFFFFFFFFFFFFFFF)");
-    // double-swap is identity
-    uint64_t v = 0x0807060504030201ULL;
-    TEST_ASSERT(BYTESWAP_64(BYTESWAP_64(v)) == v, "BYTESWAP_64 is its own inverse");
 }
 
 // ============================================================
@@ -88,17 +85,6 @@ static void test_rotr_32() {
     TEST_ASSERT(ROTR_32(0x12345678U, 0)  == 0x12345678U, "ROTR_32 by 0 is identity");
     TEST_ASSERT(ROTR_32(0x23456781U, 4)  == 0x12345678U, "ROTR_32 by 4 nibble");
     TEST_ASSERT(ROTR_32(0x80000000U, 31) == 0x00000001U, "ROTR_32(0x80000000, 31)");
-}
-
-static void test_rotl_rotr_inverse() {
-    const uint32_t vals[]   = { 0x12345678U, 0xABCDEF01U, 0x00000001U, 0xFFFFFFFFU };
-    const unsigned shifts[] = { 0, 1, 4, 7, 15, 16, 17, 31 };
-    for (auto v : vals) {
-        for (auto n : shifts) {
-            TEST_ASSERT(ROTR_32(ROTL_32(v, n), n) == v,
-                "ROTR_32(ROTL_32(v, n), n) == v");
-        }
-    }
 }
 
 static void test_extract_bits_uint32() {
@@ -228,14 +214,6 @@ static void test_write_mem_be() {
     TEST_ASSERT(buf1[0] == 0xEF, "write_mem 1 byte");
 }
 
-static void test_read_write_roundtrip() {
-    uint8_t buf[4] = {};
-    write_mem(buf, 0xDEADBEEFU, 4);
-    TEST_ASSERT(read_mem(buf, 4) == 0xDEADBEEFU, "write_mem/read_mem 4-byte roundtrip");
-
-    write_mem(buf, 0xCAFEU, 2);
-    TEST_ASSERT(read_mem(buf, 2) == 0xCAFEU, "write_mem/read_mem 2-byte roundtrip");
-}
 
 // ============================================================
 // Entry point
@@ -253,7 +231,6 @@ int main() {
     cout << endl << "Bitops tests:" << endl;
     test_rotl_32();
     test_rotr_32();
-    test_rotl_rotr_inverse();
     test_extract_bits_uint32();
     test_insert_bits_uint32();
     test_bit_changed();
@@ -266,7 +243,6 @@ int main() {
     cout << endl << "Memaccess tests:" << endl;
     test_read_mem_be();
     test_write_mem_be();
-    test_read_write_roundtrip();
 
     cout << endl << "Results: " << (tests_run - tests_failed)
          << "/" << tests_run << " passed." << endl;

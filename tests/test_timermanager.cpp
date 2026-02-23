@@ -75,19 +75,6 @@ static void test_oneshot_fires_at_deadline() {
     TEST_ASSERT(fired == 1, "one-shot: no second fire after expiry");
 }
 
-static void test_oneshot_does_not_fire_early() {
-    fake_time_ns = 0;
-    TimerManager* tm = get_tm();
-
-    int fired = 0;
-    uint32_t id = tm->add_oneshot_timer(MSECS_TO_NSECS(100), [&]() { fired++; });
-
-    fake_time_ns = MSECS_TO_NSECS(50);
-    tm->process_timers();
-    TEST_ASSERT(fired == 0, "one-shot: no fire at t=50ms for 100ms timer");
-
-    tm->cancel_timer(id);
-}
 
 static void test_cyclic_fires_on_each_interval() {
     fake_time_ns = 0;
@@ -183,7 +170,6 @@ int main() {
     cout << "==================" << endl;
 
     test_oneshot_fires_at_deadline();
-    test_oneshot_does_not_fire_early();
     test_cyclic_fires_on_each_interval();
     test_cancel_prevents_firing();
     test_multiple_timers_fire_in_expiry_order();

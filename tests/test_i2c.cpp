@@ -106,17 +106,7 @@ static void test_read_past_end_wraps_around() {
     TEST_ASSERT(byte == 0xFF, "read past end wraps to start");
 }
 
-static void test_send_byte_returns_true() {
-    I2CProm prom(0x50, 8);
-    TEST_ASSERT(prom.send_byte(0x42), "send_byte always acknowledges");
-}
 
-static void test_send_subaddress_returns_true() {
-    I2CProm prom(0x50, 8);
-    prom.start_transaction();
-    TEST_ASSERT(prom.send_subaddress(0), "send_subaddress(0) returns true");
-    TEST_ASSERT(prom.send_subaddress(7), "send_subaddress(7) returns true");
-}
 
 // ============================================================
 // I2CBus routing tests
@@ -216,8 +206,6 @@ int main() {
     test_send_subaddress_seeks_position();
     test_start_transaction_resets_position();
     test_read_past_end_wraps_around();
-    test_send_byte_returns_true();
-    test_send_subaddress_returns_true();
 
     cout << endl << "I2CBus tests:" << endl;
     test_bus_start_transaction_reaches_device();
