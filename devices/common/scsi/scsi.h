@@ -121,7 +121,7 @@ enum ScsiCommand : uint8_t {
     DIAG_RESULTS                 = 0x1C,
     SEND_DIAGS                   = 0x1D,
     PREVENT_ALLOW_MEDIUM_REMOVAL = 0x1E,
-    READ_CAPACITY_10             = 0x25,
+    READ_CAPACITY                = 0x25,
     READ_10                      = 0x28,
     WRITE_10                     = 0x2A,
     SEEK_10                      = 0x2B,
@@ -216,6 +216,8 @@ namespace PageControl {
 /** Page numbers for MODE SENSE and MODE SELECT. */
 enum ModePage : uint8_t {
     ERROR_RECOVERY       = 0x1,
+    DEV_FORMAT_PARAMS    = 0x3,
+    RIGID_DISK_GEOMETRY  = 0x4,
     CDROM_PARAMS         = 0xD,
     CDROM_AUDIO          = 0xE,
     POWER_CONDITION      = 0x1A,
@@ -235,8 +237,6 @@ constexpr uint64_t SEL_TIME_OUT     = 250000000;
 constexpr auto SCSI_MAX_DEVS    = 8;
 
 class ScsiBus;
-
-typedef std::function<void()> action_callback;
 
 class ScsiPhysDevice : public ScsiPhysInterface, public HWComponent {
 public:
@@ -266,8 +266,12 @@ public:
         this->buf_ptr = bptr;
     }
 
-    void set_more_data_cb(more_data_cb_t cb) override {
+    void set_read_more_data_cb(more_data_cb_t cb) override {
         this->read_more_data = cb;
+    }
+
+    void set_post_xfer_action(action_callback cb) override {
+        this->post_xfer_action = cb;
     }
 
     void set_status(uint8_t status_code) override {

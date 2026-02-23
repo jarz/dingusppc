@@ -49,7 +49,7 @@ ScsiCdrom::ScsiCdrom(std::string name, int my_id) :
         }
     );
 
-    this->set_more_data_cb(
+    this->set_read_more_data_cb(
         [this](int* dsize, uint8_t** dptr) {
             if (this->remain_size) {
                 *dsize = this->read_more();
@@ -110,7 +110,7 @@ void ScsiCdrom::process_command()
         this->eject_allowed = (cmd[4] & 1) == 0;
         this->switch_phase(ScsiPhase::STATUS);
         break;
-    case ScsiCommand::READ_CAPACITY_10:
+    case ScsiCommand::READ_CAPACITY:
         this->read_capacity_10();
         break;
     case ScsiCommand::READ_10:
@@ -146,6 +146,15 @@ void ScsiCdrom::read(uint32_t lba, uint16_t nblocks, uint8_t cmd_len)
 
     this->msg_buf[0] = ScsiMessage::COMMAND_COMPLETE;
     this->switch_phase(ScsiPhase::DATA_IN);
+}
+
+int ScsiCdrom::format_block_descriptors(uint8_t* out_ptr) {
+    uint8_t density_code = 1; // user data only, 2048 bytes per physical sector
+
+    WRITE_DWORD_BE_A(&out_ptr[0], (density_code << 24) | (this->size_blocks & 0xFFFFFF));
+    WRITE_DWORD_BE_A(&out_ptr[4], (this->block_size & 0xFFFFFF));
+
+    return 8;
 }
 
 static char Apple_Copyright_Page_Data[] = "APPLE COMPUTER, INC   ";

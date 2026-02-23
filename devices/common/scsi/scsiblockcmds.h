@@ -19,49 +19,44 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-/** @file SCSI CD-ROM definitions. */
-
-#ifndef SCSI_CDROM_H
-#define SCSI_CDROM_H
+#ifndef SCSI_BLOCK_COMMANDS_H
+#define SCSI_BLOCK_COMMANDS_H
 
 #include <devices/common/scsi/scsi.h>
 #include <devices/common/scsi/scsicommoncmds.h>
-#include <devices/storage/cdromdrive.h>
-#include <utils/imgfile.h>
+#include <devices/storage/blockstoragedevice.h>
 
 #include <cinttypes>
-#include <memory>
-#include <string>
 
-class ScsiCdrom : public ScsiPhysDevice, public CdromDrive, public ScsiCommonCmds {
+/** Base class for SCSI block device commands. */
+class ScsiBlockCmds : public ScsiCommonCmds, public BlockStorageDevice {
 public:
-    ScsiCdrom(std::string name, int my_id);
-    ~ScsiCdrom() = default;
+    ScsiBlockCmds(int cache_blocks = 256);
+    ~ScsiBlockCmds() = default;
 
-    virtual void process_command() override;
+    void init_block_device(uint8_t medium_type, uint8_t dev_flags);
 
-protected:
-    bool is_device_ready() override { return true; }
+    virtual int read_new();
+    virtual int write_new();
+    virtual int read_capacity();
 
-    // temporary implementation that should be elsewhere
     void get_medium_type(uint8_t& medium_type, uint8_t& dev_flags) override {
-        medium_type = 1; // 120mm CD-ROM data only
-        dev_flags   = 0;
+        medium_type = this->medium_type;
+        dev_flags   = this->device_flags;
     }
 
-    // temporary implementation that should be elsewhere
     int format_block_descriptors(uint8_t* out_ptr) override;
 
-    void    read(uint32_t lba, uint16_t nblocks, uint8_t cmd_len);
-    void    mode_select_6(uint8_t param_len);
+    int  format_error_recovery_page(uint8_t subpage, uint8_t ctrl, uint8_t *out_ptr,
+                                    int avail_len);
 
-    void    mode_sense_6();
-    void    read_capacity_10();
+protected:
+    virtual void    process_command() override;
 
-private:
-    bool    eject_allowed = true;
-    int     bytes_out = 0;
-    uint8_t data_buf[2048] = {};
+    uint32_t    get_lba();
+
+    uint8_t medium_type  = 0;
+    uint8_t device_flags = 0;
 };
 
-#endif // SCSI_CDROM_H
+#endif // SCSI_BLOCK_COMMANDS_H
