@@ -581,6 +581,433 @@ static void test_res_count_updated() {
 }
 
 // ---------------------------------------------------------------------------
+// 15. Unknown command code (>7) sets DEAD and clears ACTIVE
+// ---------------------------------------------------------------------------
+static void test_unknown_cmd_sets_dead() {
+    cout << "  test_unknown_cmd_sets_dead..." << endl;
+
+    DMAChannel ch = make_channel();
+
+    // cmd value 8 (0x80 in cmd_key high nibble) has no case in interpret_cmd
+    write_cmd(CMD_BASE, /*cmd=*/8, 0, 0, 0, 0);
+
+    dma_set_cmd_ptr(ch, CMD_BASE);
+    dma_start(ch);
+
+    uint32_t stat = dma_read(ch, DMAReg::CH_STAT);
+    TEST_ASSERT(stat & CH_STAT_DEAD,    "Unknown command must set DEAD");
+    TEST_ASSERT(!(stat & CH_STAT_ACTIVE), "Unknown command must clear ACTIVE");
+}
+
+// ---------------------------------------------------------------------------
+// 16. Clearing RUN while the channel is active: ACTIVE is cleared, stop_cb
+//     is called, and cmd_in_progress is reset.
+// ---------------------------------------------------------------------------
+static void test_abort_clears_active() {
+    cout << "  test_abort_clears_active..." << endl;
+
+    DMAChannel ch = make_channel();
+    bool stop_cb_called = false;
+    ch.set_callbacks(nullptr, [&stop_cb_called]() { stop_cb_called = true; });
+
+    // OUTPUT_MORE keeps the channel active so we can test the abort path
+    static constexpr uint32_t DATA_LEN = 8;
+    for (uint32_t i = 0; i < DATA_LEN; i++)
+        g_ram[SRC_BASE + i] = static_cast<uint8_t>(i);
+
+    write_cmd(CMD_BASE,      DBDMA_Cmd::OUTPUT_MORE, 0, DATA_LEN, SRC_BASE, 0);
+    write_cmd(CMD_BASE + 16, DBDMA_Cmd::STOP,        0, 0,        0,        0);
+
+    dma_set_cmd_ptr(ch, CMD_BASE);
+    dma_start(ch);
+
+    TEST_ASSERT(ch.is_out_active(), "Channel must be active before abort");
+
+    dma_stop(ch); // clear RUN → abort path
+
+    uint32_t stat = dma_read(ch, DMAReg::CH_STAT);
+    TEST_ASSERT(!(stat & CH_STAT_ACTIVE), "ACTIVE must be cleared after abort");
+    TEST_ASSERT(!(stat & CH_STAT_DEAD),   "DEAD must not be set by a clean abort");
+    TEST_ASSERT(!(stat & CH_STAT_RUN),    "RUN must be cleared after abort");
+    TEST_ASSERT(stop_cb_called,           "stop_cb must be invoked on abort");
+}
+
+// ---------------------------------------------------------------------------
+// 17. pull_data with req_len < queue_len: only req_len bytes are returned,
+//     the channel remains active with the residue still queued.
+// ---------------------------------------------------------------------------
+static void test_pull_data_partial() {
+    cout << "  test_pull_data_partial..." << endl;
+
+    DMAChannel ch = make_channel();
+
+    static constexpr uint32_t TOTAL = 8;
+    static constexpr uint32_t HALF  = TOTAL / 2;
+    for (uint32_t i = 0; i < TOTAL; i++)
+        g_ram[SRC_BASE + i] = static_cast<uint8_t>(0xB0 + i);
+
+    write_cmd(CMD_BASE,      DBDMA_Cmd::OUTPUT_MORE, 0, TOTAL, SRC_BASE, 0);
+    write_cmd(CMD_BASE + 16, DBDMA_Cmd::STOP,        0, 0,     0,        0);
+
+    dma_set_cmd_ptr(ch, CMD_BASE);
+    dma_start(ch);
+
+    // First partial pull
+    uint8_t *p1 = nullptr; uint32_t avail1 = 0;
+    DmaPullResult r1 = ch.pull_data(HALF, &avail1, &p1);
+
+    TEST_ASSERT(r1 == DmaPullResult::MoreData, "First partial pull must return MoreData");
+    TEST_ASSERT(avail1 == HALF,                "First partial pull must return exactly HALF bytes");
+    TEST_ASSERT(p1 != nullptr,                 "First partial pull must return non-null pointer");
+    TEST_ASSERT(memcmp(p1, &g_ram[SRC_BASE], HALF) == 0,
+                "First partial pull must return first HALF bytes of source");
+    TEST_ASSERT(ch.is_out_active(), "Channel must still be active after partial pull");
+
+    // Second pull consumes the remainder
+    uint8_t *p2 = nullptr; uint32_t avail2 = 0;
+    DmaPullResult r2 = ch.pull_data(HALF, &avail2, &p2);
+
+    TEST_ASSERT(r2 == DmaPullResult::MoreData, "Second partial pull must return MoreData");
+    TEST_ASSERT(avail2 == HALF,                "Second partial pull must return remaining HALF bytes");
+    TEST_ASSERT(memcmp(p2, &g_ram[SRC_BASE + HALF], HALF) == 0,
+                "Second partial pull must return second HALF bytes of source");
+
+    // Drain so STOP runs
+    ch.end_pull_data();
+}
+
+// ---------------------------------------------------------------------------
+// 18. pull_data returns NoMoreData once the channel has halted (STOP ran)
+// ---------------------------------------------------------------------------
+static void test_pull_data_no_more_data() {
+    cout << "  test_pull_data_no_more_data..." << endl;
+
+    DMAChannel ch = make_channel();
+
+    static constexpr uint32_t DATA_LEN = 4;
+    for (uint32_t i = 0; i < DATA_LEN; i++)
+        g_ram[SRC_BASE + i] = static_cast<uint8_t>(i);
+
+    write_cmd(CMD_BASE,      DBDMA_Cmd::OUTPUT_MORE, 0, DATA_LEN, SRC_BASE, 0);
+    write_cmd(CMD_BASE + 16, DBDMA_Cmd::STOP,        0, 0,        0,        0);
+
+    dma_set_cmd_ptr(ch, CMD_BASE);
+    dma_start(ch);
+
+    // Consume all data and advance past STOP
+    uint8_t *p = nullptr; uint32_t avail = 0;
+    ch.pull_data(DATA_LEN, &avail, &p);
+    ch.end_pull_data(); // STOP executes, ACTIVE cleared
+
+    uint32_t stat = dma_read(ch, DMAReg::CH_STAT);
+    TEST_ASSERT(!(stat & CH_STAT_ACTIVE), "Channel must be idle after STOP");
+
+    // Next pull_data must immediately report NoMoreData
+    uint8_t *p2 = nullptr; uint32_t avail2 = 0xFFFFFFFFU;
+    DmaPullResult r = ch.pull_data(DATA_LEN, &avail2, &p2);
+    TEST_ASSERT(r == DmaPullResult::NoMoreData,
+                "pull_data must return NoMoreData when channel is inactive");
+    TEST_ASSERT(avail2 == 0,
+                "avail_len must be 0 when pull_data returns NoMoreData");
+}
+
+// ---------------------------------------------------------------------------
+// 19. Two consecutive OUTPUT_MORE descriptors: pull_data crosses the
+//     descriptor boundary correctly, advancing cmd_ptr to the next command.
+// ---------------------------------------------------------------------------
+static void test_chained_output_more() {
+    cout << "  test_chained_output_more..." << endl;
+
+    DMAChannel ch = make_channel();
+
+    static constexpr uint32_t LEN1 = 6;
+    static constexpr uint32_t LEN2 = 5;
+
+    // Source A: SRC_BASE[0..5]
+    for (uint32_t i = 0; i < LEN1; i++)
+        g_ram[SRC_BASE + i] = static_cast<uint8_t>(0x10 + i);
+
+    // Source B: SRC_BASE[16..20] (leave gap to avoid overlap with descriptors)
+    for (uint32_t i = 0; i < LEN2; i++)
+        g_ram[SRC_BASE + 16 + i] = static_cast<uint8_t>(0x20 + i);
+
+    write_cmd(CMD_BASE,      DBDMA_Cmd::OUTPUT_MORE, 0, LEN1, SRC_BASE,      0);
+    write_cmd(CMD_BASE + 16, DBDMA_Cmd::OUTPUT_MORE, 0, LEN2, SRC_BASE + 16, 0);
+    write_cmd(CMD_BASE + 32, DBDMA_Cmd::STOP,        0, 0,    0,             0);
+
+    dma_set_cmd_ptr(ch, CMD_BASE);
+    dma_start(ch);
+
+    // Pull first chunk
+    uint8_t *p1 = nullptr; uint32_t a1 = 0;
+    DmaPullResult r1 = ch.pull_data(LEN1, &a1, &p1);
+    TEST_ASSERT(r1 == DmaPullResult::MoreData, "First chain pull: MoreData");
+    TEST_ASSERT(a1 == LEN1,                    "First chain pull: correct length");
+    TEST_ASSERT(memcmp(p1, &g_ram[SRC_BASE], LEN1) == 0,
+                "First chain pull: correct data from first descriptor");
+
+    // Pull second chunk — interpret_cmd() must advance across the boundary
+    uint8_t *p2 = nullptr; uint32_t a2 = 0;
+    DmaPullResult r2 = ch.pull_data(LEN2, &a2, &p2);
+    TEST_ASSERT(r2 == DmaPullResult::MoreData,  "Second chain pull: MoreData");
+    TEST_ASSERT(a2 == LEN2,                     "Second chain pull: correct length");
+    TEST_ASSERT(memcmp(p2, &g_ram[SRC_BASE + 16], LEN2) == 0,
+                "Second chain pull: correct data from second descriptor");
+
+    // Drain → STOP, channel halts
+    ch.end_pull_data();
+    uint32_t stat = dma_read(ch, DMAReg::CH_STAT);
+    TEST_ASSERT(!(stat & CH_STAT_ACTIVE), "Channel idle after two chained OUTPUT_MORE + STOP");
+}
+
+// ---------------------------------------------------------------------------
+// 20. STORE_QUAD 1-byte and 2-byte xfer_size variants.
+//
+//     req_count & 7 determines xfer_size:
+//       bit 2 set → 4 bytes   (already covered by test_store_quad_writes_ram)
+//       bit 1 set → 2 bytes
+//       else     → 1 byte
+// ---------------------------------------------------------------------------
+static void test_store_quad_byte_sizes() {
+    cout << "  test_store_quad_byte_sizes..." << endl;
+
+    static constexpr uint32_t PAYLOAD = 0x44332211U;
+
+    // ---- 1-byte write (req_count = 1, bit 1 and 2 both clear) ----
+    {
+        DMAChannel ch = make_channel();
+        memset(&g_ram[SCR_BASE], 0x00, 4);
+
+        write_quad_cmd(CMD_BASE,      DBDMA_Cmd::STORE_QUAD, 0, 1, SCR_BASE, PAYLOAD);
+        write_cmd     (CMD_BASE + 16, DBDMA_Cmd::STOP,       0, 0, 0,        0);
+
+        dma_set_cmd_ptr(ch, CMD_BASE);
+        dma_start(ch);
+
+        TEST_ASSERT(g_ram[SCR_BASE]     == 0x11, "STORE_QUAD 1-byte must write low byte of cmd_arg");
+        TEST_ASSERT(g_ram[SCR_BASE + 1] == 0x00, "STORE_QUAD 1-byte must not touch adjacent byte");
+    }
+
+    // ---- 2-byte write (req_count = 2, bit 1 set) ----
+    {
+        DMAChannel ch = make_channel();
+        memset(&g_ram[SCR_BASE], 0x00, 4);
+
+        write_quad_cmd(CMD_BASE,      DBDMA_Cmd::STORE_QUAD, 0, 2, SCR_BASE, PAYLOAD);
+        write_cmd     (CMD_BASE + 16, DBDMA_Cmd::STOP,       0, 0, 0,        0);
+
+        dma_set_cmd_ptr(ch, CMD_BASE);
+        dma_start(ch);
+
+        TEST_ASSERT(g_ram[SCR_BASE]     == 0x11, "STORE_QUAD 2-byte: low byte");
+        TEST_ASSERT(g_ram[SCR_BASE + 1] == 0x22, "STORE_QUAD 2-byte: next byte");
+        TEST_ASSERT(g_ram[SCR_BASE + 2] == 0x00, "STORE_QUAD 2-byte: must not touch byte 2");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 21. Branch conditional (b=01): branch when condition is TRUE; fall through
+//     when condition is FALSE.
+//
+//     BRANCH_SELECT mask=S0 (0x0001), compare=0x0000.
+//     Condition: "(ch_stat & mask) == compare" = "(S0_bit == 0)".
+//       S0 clear → condition TRUE  → branch taken
+//       S0 set   → condition FALSE → fall through
+// ---------------------------------------------------------------------------
+static void test_branch_conditional() {
+    cout << "  test_branch_conditional..." << endl;
+
+    // ---- Part A: S0 clear → condition true → branch taken, STORE_QUAD skipped ----
+    {
+        DMAChannel ch = make_channel();
+        // BRANCH_SELECT: mask=0x0001, compare=0x0000
+        dma_write(ch, DMAReg::BRANCH_SELECT, (0x0001U << 16) | 0x0000U);
+
+        uint32_t sentinel = 0xFEEDFACEU;
+        WRITE_DWORD_LE_A(&g_ram[SCR_BASE], sentinel);
+
+        write_quad_cmd(CMD_BASE + 16, DBDMA_Cmd::STORE_QUAD, 0, 4, SCR_BASE, 0xDEADBEEFU);
+        write_cmd     (CMD_BASE + 32, DBDMA_Cmd::STOP,       0, 0, 0,        0);
+
+        // NOP with b=01 (0x04), cmd_arg = branch target (skip STORE_QUAD)
+        DMACmd *nop = reinterpret_cast<DMACmd *>(&g_ram[CMD_BASE]);
+        nop->req_count = 0;
+        nop->cmd_bits  = 0x04; // b=01
+        nop->cmd_key   = (DBDMA_Cmd::NOP << 4);
+        nop->address   = 0;
+        nop->cmd_arg   = CMD_BASE + 32; // jump to STOP
+        nop->res_count = 0;
+        nop->xfer_stat = 0;
+
+        dma_set_cmd_ptr(ch, CMD_BASE);
+        dma_start(ch); // S0 is clear → condition true → branch
+
+        TEST_ASSERT(READ_DWORD_LE_A(&g_ram[SCR_BASE]) == sentinel,
+                    "b=01 with true condition: STORE_QUAD must be skipped");
+        uint32_t stat = dma_read(ch, DMAReg::CH_STAT);
+        TEST_ASSERT(!(stat & CH_STAT_ACTIVE),
+                    "b=01 with true condition: channel must halt after STOP");
+    }
+
+    // ---- Part B: S0 set → condition false → no branch, STORE_QUAD runs ----
+    {
+        DMAChannel ch = make_channel();
+        dma_write(ch, DMAReg::BRANCH_SELECT, (0x0001U << 16) | 0x0000U);
+        dma_ctrl(ch, 0x0001, 0x0001); // set S0
+
+        WRITE_DWORD_LE_A(&g_ram[SCR_BASE], 0x00000000U);
+
+        write_quad_cmd(CMD_BASE + 16, DBDMA_Cmd::STORE_QUAD, 0, 4, SCR_BASE, 0xCAFEBABEU);
+        write_cmd     (CMD_BASE + 32, DBDMA_Cmd::STOP,       0, 0, 0,        0);
+
+        DMACmd *nop = reinterpret_cast<DMACmd *>(&g_ram[CMD_BASE]);
+        nop->req_count = 0;
+        nop->cmd_bits  = 0x04; // b=01
+        nop->cmd_key   = (DBDMA_Cmd::NOP << 4);
+        nop->address   = 0;
+        nop->cmd_arg   = CMD_BASE + 32; // would-be branch target
+        nop->res_count = 0;
+        nop->xfer_stat = 0;
+
+        dma_set_cmd_ptr(ch, CMD_BASE);
+        dma_start(ch); // S0 set → condition false → fall through to STORE_QUAD
+
+        TEST_ASSERT(READ_DWORD_LE_A(&g_ram[SCR_BASE]) == 0xCAFEBABEU,
+                    "b=01 with false condition: STORE_QUAD must run");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 22. CH_STAT_BT is set in the descriptor's xfer_stat field when a branch
+//     is taken (per DBDMA spec §5.5.3.7: BT reflects branch-taken status).
+// ---------------------------------------------------------------------------
+static void test_bt_in_xfer_stat() {
+    cout << "  test_bt_in_xfer_stat..." << endl;
+
+    DMAChannel ch = make_channel();
+
+    write_cmd(CMD_BASE + 16, DBDMA_Cmd::STOP, 0, 0, 0, 0);
+
+    // NOP with b=11 (branch always)
+    DMACmd *nop = reinterpret_cast<DMACmd *>(&g_ram[CMD_BASE]);
+    nop->req_count = 0;
+    nop->cmd_bits  = 0x0C; // b=11
+    nop->cmd_key   = (DBDMA_Cmd::NOP << 4);
+    nop->address   = 0;
+    nop->cmd_arg   = CMD_BASE + 16; // branch target = STOP
+    nop->res_count = 0;
+    nop->xfer_stat = 0;
+
+    dma_set_cmd_ptr(ch, CMD_BASE);
+    dma_start(ch);
+
+    uint16_t xfer_stat = READ_WORD_LE_A(&nop->xfer_stat);
+    TEST_ASSERT(xfer_stat & CH_STAT_BT,
+                "xfer_stat must have CH_STAT_BT set when a branch was taken");
+
+    // Also verify BT is no longer in ch_stat (it is cleared after the write-back)
+    uint32_t stat = dma_read(ch, DMAReg::CH_STAT);
+    TEST_ASSERT(!(stat & CH_STAT_BT),
+                "CH_STAT_BT must be cleared from ch_stat after the descriptor write-back");
+}
+
+// ---------------------------------------------------------------------------
+// 23. Interrupt invert mode (i=10): interrupt fires when the condition is
+//     FALSE (the complement of i=01 behaviour).
+//
+//     INT_SELECT mask=S0 (0x0001), compare=0x0001.
+//     Condition: "(ch_stat & mask) == compare" = "(S0_bit == 1)".
+//     With i=10, interrupt fires when condition is FALSE, i.e. when S0 is clear.
+// ---------------------------------------------------------------------------
+static void test_interrupt_invert() {
+    cout << "  test_interrupt_invert..." << endl;
+
+    // ---- Part A: S0 clear → condition false → inverted → fire interrupt ----
+    {
+        DMAChannel ch = make_channel();
+        MockIntCtrl mock;
+        ch.register_dma_int(&mock, 0);
+
+        dma_write(ch, DMAReg::INT_SELECT, (0x0001U << 16) | 0x0001U);
+        // S0 is not set; condition "(S0==1)" is false; i=10 fires when false
+
+        write_cmd(CMD_BASE,      DBDMA_Cmd::NOP,  0x20, 0, 0, 0); // i=10
+        write_cmd(CMD_BASE + 16, DBDMA_Cmd::STOP, 0x00, 0, 0, 0);
+
+        dma_set_cmd_ptr(ch, CMD_BASE);
+        dma_start(ch);
+        TimerManager::get_instance()->process_timers();
+
+        TEST_ASSERT(mock.dma_irq_count == 1,
+                    "i=10 must fire interrupt when condition is false (S0 clear)");
+    }
+
+    // ---- Part B: S0 set → condition true → inverted → no interrupt ----
+    {
+        DMAChannel ch = make_channel();
+        MockIntCtrl mock;
+        ch.register_dma_int(&mock, 0);
+
+        dma_write(ch, DMAReg::INT_SELECT, (0x0001U << 16) | 0x0001U);
+        dma_ctrl(ch, 0x0001, 0x0001); // set S0 → condition "(S0==1)" is true → inverted → silent
+
+        write_cmd(CMD_BASE,      DBDMA_Cmd::NOP,  0x20, 0, 0, 0); // i=10
+        write_cmd(CMD_BASE + 16, DBDMA_Cmd::STOP, 0x00, 0, 0, 0);
+
+        dma_set_cmd_ptr(ch, CMD_BASE);
+        dma_start(ch);
+        TimerManager::get_instance()->process_timers();
+
+        TEST_ASSERT(mock.dma_irq_count == 0,
+                    "i=10 must NOT fire interrupt when condition is true (S0 set)");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 24. push_data with len < queue_len: only len bytes are written, the
+//     remainder of the buffer is untouched, and the channel stays active.
+// ---------------------------------------------------------------------------
+static void test_push_data_partial() {
+    cout << "  test_push_data_partial..." << endl;
+
+    DMAChannel ch = make_channel();
+
+    static constexpr uint32_t TOTAL = 8;
+    static constexpr uint32_t HALF  = TOTAL / 2;
+
+    static const uint8_t FIRST_HALF[HALF]  = {0xAA, 0xBB, 0xCC, 0xDD};
+    static const uint8_t SECOND_HALF[HALF] = {0x11, 0x22, 0x33, 0x44};
+
+    // Fill destination with a canary pattern
+    memset(&g_ram[DST_BASE], 0xEE, TOTAL);
+
+    write_cmd(CMD_BASE,      DBDMA_Cmd::INPUT_MORE, 0, TOTAL, DST_BASE, 0);
+    write_cmd(CMD_BASE + 16, DBDMA_Cmd::STOP,       0, 0,     0,        0);
+
+    dma_set_cmd_ptr(ch, CMD_BASE);
+    dma_start(ch);
+
+    // Push first half only
+    int rc = ch.push_data(reinterpret_cast<const char *>(FIRST_HALF), HALF);
+    TEST_ASSERT(rc == 0, "Partial push_data must succeed");
+    TEST_ASSERT(memcmp(&g_ram[DST_BASE], FIRST_HALF, HALF) == 0,
+                "Partial push must write first HALF bytes to destination");
+    TEST_ASSERT(memcmp(&g_ram[DST_BASE + HALF],
+                       "\xEE\xEE\xEE\xEE", HALF) == 0,
+                "Partial push must leave remainder of buffer untouched (canary intact)");
+    TEST_ASSERT(ch.is_in_active(),
+                "Channel must remain active after partial push");
+
+    // Push second half to fill the buffer
+    rc = ch.push_data(reinterpret_cast<const char *>(SECOND_HALF), HALF);
+    TEST_ASSERT(rc == 0, "Second partial push must succeed");
+    TEST_ASSERT(memcmp(&g_ram[DST_BASE + HALF], SECOND_HALF, HALF) == 0,
+                "Second partial push must write remaining bytes");
+
+    ch.end_push_data();
+}
+
+// ---------------------------------------------------------------------------
 // Setup: one-time initialisation of memory controller and TimerManager
 // ---------------------------------------------------------------------------
 static void setup() {
@@ -617,6 +1044,16 @@ int main() {
     test_cmd_ptr_locked_while_running();
     test_xfer_stat_updated();
     test_res_count_updated();
+    test_unknown_cmd_sets_dead();
+    test_abort_clears_active();
+    test_pull_data_partial();
+    test_pull_data_no_more_data();
+    test_chained_output_more();
+    test_store_quad_byte_sizes();
+    test_branch_conditional();
+    test_bt_in_xfer_stat();
+    test_interrupt_invert();
+    test_push_data_partial();
 
     cout << tests_run    << " tests run, "
          << tests_failed << " failed." << endl;
