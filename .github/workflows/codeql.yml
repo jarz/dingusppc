@@ -3,11 +3,11 @@ on:
   push:
     branches:
       - 'jarz/**'
-      - 'copilot/**'
       - 'dev'
   pull_request:
     branches:
       - 'jarz/**'
+      - 'copilot/**'
       - 'dev'
   schedule:
     - cron: '0 6 * * 1'  # Weekly on Monday at 06:00 UTC

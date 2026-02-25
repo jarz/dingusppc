@@ -4,12 +4,12 @@ on:
     branches:
       - master
       - 'jarz/**'
-      - 'copilot/**'
       - dev
   pull_request:
     branches:
       - master
       - 'jarz/**'
+      - 'copilot/**'
       - dev
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
