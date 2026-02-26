@@ -128,14 +128,14 @@ static void fpresult_update(double set_result) {
             ppc_state.fpscr |= FPCC_ZERO;
         }
 
-        if (std::fetestexcept(FE_OVERFLOW)) {
-            ppc_state.fpscr |= (OX + FX);
-        }
-        if (std::fetestexcept(FE_UNDERFLOW)) {
-            ppc_state.fpscr |= (UX + FX);
-        }
-        if (std::fetestexcept(FE_DIVBYZERO)) {
-            ppc_state.fpscr |= (ZX + FX);
+        int exc = std::fetestexcept(FE_OVERFLOW | FE_UNDERFLOW | FE_DIVBYZERO);
+        if (exc) {
+            if (exc & FE_OVERFLOW)
+                ppc_state.fpscr |= (OX + FX);
+            if (exc & FE_UNDERFLOW)
+                ppc_state.fpscr |= (UX + FX);
+            if (exc & FE_DIVBYZERO)
+                ppc_state.fpscr |= (ZX + FX);
         }
 
         std::feclearexcept(FE_ALL_EXCEPT);

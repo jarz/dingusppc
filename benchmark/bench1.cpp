@@ -129,6 +129,8 @@ int main(int argc, char** argv) {
     }
     LOG_F(INFO, "Overhead Time: %lld ns", overhead);
 
+    int nfailures = 0;
+
     for (int theproc = 0; theproc < 2; theproc++) {
         LOG_F(INFO, "Doing %s", theproc ? "ppc_exec_until" : "ppc_exec");
         for (i = 0; i < test_iterations; i++) {
@@ -147,8 +149,11 @@ int main(int argc, char** argv) {
                 if (time_elapsed.count() < best_sample)
                     best_sample = time_elapsed.count();
             }
-            if (ppc_state.gpr[3] != checksum)
-                LOG_F(INFO, "Checksum: 0x%08X", ppc_state.gpr[3]);
+            if (ppc_state.gpr[3] != checksum) {
+                LOG_F(ERROR, "Checksum MISMATCH: expected 0x%08X, got 0x%08X",
+                      checksum, ppc_state.gpr[3]);
+                nfailures++;
+            }
             best_sample -= overhead;
             LOG_F(INFO, "(%d) %lld ns, %.4lf MiB/s", i+1, best_sample, 1E9 * test_size / (best_sample * 1024 * 1024));
         }
@@ -156,5 +161,5 @@ int main(int argc, char** argv) {
 
     delete(grackle_obj);
 
-    return 0;
+    return nfailures;
 }
