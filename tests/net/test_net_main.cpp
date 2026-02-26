@@ -9,6 +9,7 @@ Networking subsystem test driver.
 
 // EtherBackend tests
 extern "C" int test_ether_backends();
+extern "C" int test_tap_backend();
 
 // MACE tests
 extern "C" int test_mace_loopback_basic();
@@ -105,6 +106,7 @@ int main() {
     int failures = 0;
 
     failures += run_test("EtherBackend unit tests",        test_ether_backends);
+    failures += run_test("TAP backend",                    test_tap_backend);
     failures += run_test("MACE loopback",                  test_mace_loopback_basic);
     failures += run_test("MACE Phys_Addr readback",        test_mace_phys_addr_readback);
     failures += run_test("MACE broadcast accept",          test_mace_broadcast);

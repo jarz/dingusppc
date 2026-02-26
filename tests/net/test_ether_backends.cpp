@@ -5,7 +5,13 @@
 #include <iostream>
 #include <vector>
 
+#if defined(__linux__)
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 extern "C" int test_ether_backends();
+extern "C" int test_tap_backend();
 
 static int test_null_backend() {
     int failures = 0;
@@ -193,3 +199,163 @@ int test_ether_backends() {
     failures += test_loopback_zero_length();
     return failures;
 }
+
+// ---------------------------------------------------------------------------
+// TAP backend tests (Linux /dev/net/tun)
+// All tests are safe without root; privilege-gated scenarios are skipped.
+// ---------------------------------------------------------------------------
+
+// 1. Factory registration: make_ether_backend("tap") must not return nullptr
+//    when the TAP backend is compiled in.
+static int test_tap_factory_registration() {
+    int failures = 0;
+    auto be = make_ether_backend("tap");
+#if defined(DINGUS_NET_ENABLE_TAP) && defined(__linux__)
+    if (!be) {
+        std::cerr << "FAIL: make_ether_backend(\"tap\") returned nullptr "
+                     "(DINGUS_NET_ENABLE_TAP is defined)" << std::endl;
+        ++failures;
+    }
+#else
+    // Backend not compiled in; nullptr is expected.
+    (void)be;
+#endif
+    return failures;
+}
+
+// 2. Overlong interface name must be rejected before touching the kernel.
+static int test_tap_open_overlong_ifname() {
+    int failures = 0;
+#if defined(DINGUS_NET_ENABLE_TAP) && defined(__linux__)
+    auto be = make_tap_backend();
+    if (!be) {
+        std::cerr << "FAIL: make_tap_backend() returned nullptr" << std::endl;
+        return 1;
+    }
+    MacAddr mac{};
+    EtherConfig cfg{};
+    cfg.ifname = std::string(64, 'x'); // 64-chars > IFNAMSIZ (16)
+    std::string err;
+    bool ok = be->open(mac, cfg, err);
+    if (ok) {
+        std::cerr << "FAIL: tap open with overlong ifname should return false" << std::endl;
+        ++failures;
+        be->close();
+    } else if (err.empty()) {
+        std::cerr << "FAIL: tap open with overlong ifname should set err" << std::endl;
+        ++failures;
+    }
+#endif
+    return failures;
+}
+
+// 3. send() / recv() on a never-opened backend must return error rather than crash.
+static int test_tap_send_recv_before_open() {
+    int failures = 0;
+#if defined(DINGUS_NET_ENABLE_TAP) && defined(__linux__)
+    auto be = make_tap_backend();
+    if (!be) {
+        std::cerr << "FAIL: make_tap_backend() returned nullptr" << std::endl;
+        return 1;
+    }
+
+    std::string err;
+    uint8_t buf[64]{};
+    bool sent = be->send(buf, sizeof(buf), err);
+    if (sent) {
+        std::cerr << "FAIL: tap send before open should return false" << std::endl;
+        ++failures;
+    } else if (err.empty()) {
+        std::cerr << "FAIL: tap send before open should set err" << std::endl;
+        ++failures;
+    }
+
+    err.clear();
+    int n = be->recv(buf, sizeof(buf), err);
+    if (n >= 0) {
+        std::cerr << "FAIL: tap recv before open should return <0, got " << n << std::endl;
+        ++failures;
+    } else if (err.empty()) {
+        std::cerr << "FAIL: tap recv before open should set err" << std::endl;
+        ++failures;
+    }
+#endif
+    return failures;
+}
+
+// 4. Double-close must be safe (no crash, no assertion failure).
+static int test_tap_double_close() {
+#if defined(DINGUS_NET_ENABLE_TAP) && defined(__linux__)
+    auto be = make_tap_backend();
+    if (!be) {
+        std::cerr << "FAIL: make_tap_backend() returned nullptr" << std::endl;
+        return 1;
+    }
+    be->close(); // close without ever opening
+    be->close(); // second close must not crash
+#endif
+    return 0;
+}
+
+// 5. Runtime open smoke-test: attempt to open a TAP device; skip (not fail)
+//    if /dev/net/tun is inaccessible (no CAP_NET_ADMIN / not root).
+//    When it does succeed, exercise a minimal send→recv round trip via the
+//    kernel (the kernel echoes nothing, but send must return true and recv 0).
+static int test_tap_open_smoke() {
+    int failures = 0;
+#if defined(DINGUS_NET_ENABLE_TAP) && defined(__linux__)
+    // Skip silently if we cannot access /dev/net/tun at all.
+    if (access("/dev/net/tun", R_OK | W_OK) != 0) {
+        std::cout << "  [tap smoke] skipped: /dev/net/tun not accessible" << std::endl;
+        return 0;
+    }
+
+    auto be = make_tap_backend();
+    if (!be) {
+        std::cerr << "FAIL: make_tap_backend() returned nullptr" << std::endl;
+        return 1;
+    }
+
+    MacAddr mac = {{0x02,0xDE,0xAD,0xBE,0xEF,0x01}};
+    EtherConfig cfg{};
+    // Leave cfg.ifname empty → kernel picks the next free tapN.
+    std::string err;
+    if (!be->open(mac, cfg, err)) {
+        // TUNSETIFF can fail if we have read access to /dev/net/tun but lack
+        // CAP_NET_ADMIN for TUNSETIFF itself.  Skip rather than fail.
+        std::cout << "  [tap smoke] skipped: open failed (" << err << ")" << std::endl;
+        return 0;
+    }
+
+    // send: a minimal 60-byte Ethernet frame (all zeros → broadcast dest, our
+    // mac as src, ARP ether-type, zero payload).  Must not crash or error.
+    uint8_t frame[60]{};
+    frame[12] = 0x08; frame[13] = 0x06; // EtherType = ARP (arbitrary)
+    if (!be->send(frame, sizeof(frame), err)) {
+        std::cerr << "FAIL: tap send failed: " << err << std::endl;
+        ++failures;
+    }
+
+    // recv: non-blocking; 0 = no incoming frame is fine.
+    uint8_t buf[2048]{};
+    int n = be->recv(buf, sizeof(buf), err);
+    if (n < 0) {
+        std::cerr << "FAIL: tap recv returned error: " << err << std::endl;
+        ++failures;
+    }
+
+    be->close();
+#endif
+    return failures;
+}
+
+int test_tap_backend() {
+    int failures = 0;
+    failures += test_tap_factory_registration();
+    failures += test_tap_open_overlong_ifname();
+    failures += test_tap_send_recv_before_open();
+    failures += test_tap_double_close();
+    failures += test_tap_open_smoke();
+    return failures;
+}
+

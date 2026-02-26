@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -45,4 +46,5 @@ uint32_t ether_crc32(const uint8_t* data, size_t len);
 std::unique_ptr<EtherBackend> make_loopback_backend();
 std::unique_ptr<EtherBackend> make_slirp_backend();
 std::unique_ptr<EtherBackend> make_pcap_backend();
+std::unique_ptr<EtherBackend> make_tap_backend();   // Linux TUN/TAP (ether_backend_tap.cpp)
 std::unique_ptr<EtherBackend> make_vmnet_backend();

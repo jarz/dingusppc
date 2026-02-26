@@ -32,9 +32,10 @@ std::unique_ptr<EtherBackend> make_ether_backend(const std::string& backend_name
         if (env) name = env;
     }
     if (name == "loopback") return make_loopback_backend();
-    if (name == "slirp") return make_slirp_backend();
-    if (name == "pcap") return make_pcap_backend();
-    if (name == "vmnet") return make_vmnet_backend();
+    if (name == "slirp")    return make_slirp_backend();
+    if (name == "pcap")     return make_pcap_backend();
+    if (name == "tap")      return make_tap_backend();
+    if (name == "vmnet")    return make_vmnet_backend();
     if (name == "null" || name.empty()) return std::unique_ptr<EtherBackend>(new NullBackend());
     LOG_F(WARNING, "Unknown net backend '%s', falling back to null", name.c_str());
     return std::unique_ptr<EtherBackend>(new NullBackend());

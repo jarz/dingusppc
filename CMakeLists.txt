@@ -58,21 +58,32 @@ option(DPPC_BUILD_FUZZ       "Build fuzz targets (requires Clang and libFuzzer)"
 option(DINGUS_NET_ENABLE_SLIRP "Enable libslirp networking backend" OFF)
 option(DINGUS_NET_ENABLE_PCAP  "Enable libpcap networking backend" OFF)
 option(DINGUS_NET_ENABLE_VMNET "Enable vmnet.framework backend (macOS)" OFF)
+option(DINGUS_NET_ENABLE_TAP   "Enable Linux TUN/TAP networking backend" OFF)
 
-# Auto-detect libslirp/libpcap if not explicitly requested
+# Auto-detect libslirp/libpcap when the option has not been explicitly set to ON.
+# Always run pkg_check_modules so SLIRP_LIBRARIES / PCAP_LIBRARIES are populated
+# for use in target_link_libraries below, regardless of whether the option was
+# set by auto-detection or by the user passing -DDINGUS_NET_ENABLE_SLIRP=ON.
 find_package(PkgConfig)
-if (NOT DEFINED DINGUS_NET_ENABLE_SLIRP AND PKG_CONFIG_FOUND)
-    pkg_check_modules(SLIRP libslirp)
-    if (SLIRP_FOUND)
+if (PKG_CONFIG_FOUND)
+    pkg_check_modules(SLIRP slirp)  # Debian/Ubuntu ships as 'slirp.pc'
+    if (SLIRP_FOUND AND NOT DINGUS_NET_ENABLE_SLIRP)
         message(STATUS "libslirp found; enabling slirp backend")
-        set(DINGUS_NET_ENABLE_SLIRP ON CACHE BOOL "Enable libslirp networking backend")
+        set(DINGUS_NET_ENABLE_SLIRP ON CACHE BOOL "Enable libslirp networking backend" FORCE)
+    endif()
+    pkg_check_modules(PCAP libpcap)
+    if (PCAP_FOUND AND NOT DINGUS_NET_ENABLE_PCAP)
+        message(STATUS "libpcap found; enabling pcap backend")
+        set(DINGUS_NET_ENABLE_PCAP ON CACHE BOOL "Enable libpcap networking backend" FORCE)
     endif()
 endif()
-if (NOT DEFINED DINGUS_NET_ENABLE_PCAP AND PKG_CONFIG_FOUND)
-    pkg_check_modules(PCAP libpcap)
-    if (PCAP_FOUND)
-        message(STATUS "libpcap found; enabling pcap backend")
-        set(DINGUS_NET_ENABLE_PCAP ON CACHE BOOL "Enable libpcap networking backend")
+# Auto-enable the TAP backend on Linux (no external library required).
+if (UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+    if (EXISTS "/dev/net/tun")
+        message(STATUS "/dev/net/tun present; enabling tap backend")
+        set(DINGUS_NET_ENABLE_TAP ON CACHE BOOL "Enable Linux TUN/TAP networking backend")
+    else()
+        message(STATUS "/dev/net/tun not found; tap backend will be stubbed")
     endif()
 endif()
 # Ensure the CMake option also becomes a preprocessor define for all targets
@@ -250,6 +261,20 @@ if (APPLE)
     endif()
 endif()
 
+# Collect extra link libraries needed for optional networking backends.
+# These can't rely on OBJECT library INTERFACE propagation when consumers
+# use $<TARGET_OBJECTS:utils> directly, so we link them explicitly here.
+set(DINGUS_NET_EXTRA_LIBS "")
+if (DINGUS_NET_ENABLE_SLIRP AND SLIRP_FOUND)
+    list(APPEND DINGUS_NET_EXTRA_LIBS ${SLIRP_LIBRARIES})
+endif()
+if (DINGUS_NET_ENABLE_PCAP AND PCAP_FOUND)
+    list(APPEND DINGUS_NET_EXTRA_LIBS ${PCAP_LIBRARIES})
+endif()
+if (DINGUS_NET_EXTRA_LIBS)
+    target_link_libraries(dingusppc PRIVATE ${DINGUS_NET_EXTRA_LIBS})
+endif()
+
 
 if (DPPC_68K_DEBUGGER)
     target_link_libraries(dingusppc PRIVATE capstone)
@@ -277,6 +302,9 @@ if (DPPC_BUILD_PPC_TESTS)
     endif()
     if (APPLE AND DINGUS_VMNET_FRAMEWORK)
         target_link_libraries(testppc PRIVATE ${DINGUS_VMNET_FRAMEWORK})
+    endif()
+    if (DINGUS_NET_EXTRA_LIBS)
+        target_link_libraries(testppc PRIVATE ${DINGUS_NET_EXTRA_LIBS})
     endif()
 
     enable_testing()
@@ -321,9 +349,6 @@ if (DPPC_BUILD_NET_TESTS)
                                                $<TARGET_OBJECTS:machines>
                                                $<TARGET_OBJECTS:utils>
                                                $<TARGET_OBJECTS:loguru>)
-                                               $<TARGET_OBJECTS:machines>
-                                               $<TARGET_OBJECTS:utils>
-                                               $<TARGET_OBJECTS:loguru>)
 
     if (WIN32)
         target_link_libraries(testnet PRIVATE SDL2::SDL2 cubeb)
@@ -338,6 +363,9 @@ if (DPPC_BUILD_NET_TESTS)
     endif()
     if (APPLE AND DINGUS_VMNET_FRAMEWORK)
         target_link_libraries(testnet PRIVATE ${DINGUS_VMNET_FRAMEWORK})
+    endif()
+    if (DINGUS_NET_EXTRA_LIBS)
+        target_link_libraries(testnet PRIVATE ${DINGUS_NET_EXTRA_LIBS})
     endif()
 
     enable_testing()
