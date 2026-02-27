@@ -19,6 +19,7 @@ if (DINGUS_NET_ENABLE_SLIRP)
         pkg_check_modules(SLIRP slirp)  # Debian/Ubuntu ships as 'slirp.pc'
         if (SLIRP_FOUND)
             target_include_directories(utils PRIVATE ${SLIRP_INCLUDE_DIRS})
+            target_link_directories(utils INTERFACE ${SLIRP_LIBRARY_DIRS})
             target_link_libraries(utils INTERFACE ${SLIRP_LIBRARIES})
         else()
             message(WARNING "libslirp not found; slirp backend will be stubbed")
