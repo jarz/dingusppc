@@ -60,6 +60,19 @@ endif()
 
 option(DPPC_68K_DEBUGGER   "Enable 68k debugging" OFF)
 
+# Structured PPC execution tracing (compile-time optional, zero overhead when OFF)
+option(DPPC_TRACE     "Enable PPC execution tracing infrastructure" OFF)
+option(DPPC_TRACE_PPC "Enable PPC basic-block / instruction tracing" OFF)
+if (DPPC_TRACE_PPC)
+    set(DPPC_TRACE ON CACHE BOOL "" FORCE)
+endif()
+if (DPPC_TRACE)
+    add_compile_definitions(DPPC_TRACE=1)
+endif()
+if (DPPC_TRACE_PPC)
+    add_compile_definitions(DPPC_TRACE_PPC=1)
+endif()
+
 if (DPPC_68K_DEBUGGER)
     # Turn off anything unnecessary.
     set(CAPSTONE_BUILD_SHARED OFF CACHE BOOL "")
@@ -96,6 +109,7 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/debugger/")
 add_subdirectory("${PROJECT_SOURCE_DIR}/devices/")
 add_subdirectory("${PROJECT_SOURCE_DIR}/machines/")
 add_subdirectory("${PROJECT_SOURCE_DIR}/utils/")
+add_subdirectory("${PROJECT_SOURCE_DIR}/trace/")
 add_subdirectory("${PROJECT_SOURCE_DIR}/thirdparty/loguru/")
 
 if (NOT EMSCRIPTEN)
@@ -152,6 +166,7 @@ add_executable(dingusppc MACOSX_BUNDLE ${SOURCES}
     $<TARGET_OBJECTS:devices>
     $<TARGET_OBJECTS:machines>
     $<TARGET_OBJECTS:utils>
+    $<TARGET_OBJECTS:trace>
     $<TARGET_OBJECTS:loguru>)
 else()
 add_executable(dingusppc ${SOURCES} $<TARGET_OBJECTS:core>
@@ -160,6 +175,7 @@ add_executable(dingusppc ${SOURCES} $<TARGET_OBJECTS:core>
                                     $<TARGET_OBJECTS:devices>
                                     $<TARGET_OBJECTS:machines>
                                     $<TARGET_OBJECTS:utils>
+                                    $<TARGET_OBJECTS:trace>
                                     $<TARGET_OBJECTS:loguru>)
 endif()
 
@@ -236,6 +252,7 @@ if (DPPC_BUILD_PPC_TESTS)
                                            $<TARGET_OBJECTS:devices>
                                            $<TARGET_OBJECTS:machines>
                                            $<TARGET_OBJECTS:utils>
+                                           $<TARGET_OBJECTS:trace>
                                            $<TARGET_OBJECTS:loguru>)
 
     if (WIN32)
@@ -334,6 +351,28 @@ if (DPPC_BUILD_DBDMA_TESTS)
 
     enable_testing()
     add_test(NAME testdbdma COMMAND testdbdma)
+endif()
+
+option(DPPC_BUILD_TRACE_TESTS "Build tracing infrastructure tests" OFF)
+
+if (DPPC_BUILD_TRACE_TESTS)
+    add_executable(testtrace tests/test_trace.cpp
+                                           $<TARGET_OBJECTS:trace>
+                                           $<TARGET_OBJECTS:loguru>)
+
+    # Force DPPC_TRACE_PPC on so the test always exercises the real code paths.
+    target_compile_definitions(testtrace PRIVATE DPPC_TRACE_PPC=1)
+
+    if (WIN32)
+        target_link_libraries(testtrace PRIVATE SDL2::SDL2)
+        target_compile_definitions(testtrace PRIVATE SDL_MAIN_HANDLED)
+    else()
+        target_link_libraries(testtrace PRIVATE ${CMAKE_DL_LIBS}
+                                    ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+
+    enable_testing()
+    add_test(NAME testtrace COMMAND testtrace)
 endif()
 
 if (DPPC_BUILD_BENCHMARKS)

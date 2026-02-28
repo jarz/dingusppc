@@ -24,6 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "ppcemu.h"
 #include "ppcmmu.h"
 #include "ppcdisasm.h"
+#include <trace/ppc_trace.h>
 
 #include <algorithm>
 #include <chrono>
@@ -340,6 +341,8 @@ static void ppc_exec_inner(uint32_t start_addr, uint32_t size)
             if (exec_flags & EXEF_OPC_DECODER) [[unlikely]] {
                 opcode_grabber = ppc_opcode_grabber;
             }
+            // emit basic-block trace event before updating eb_start
+            TRACE_EMIT_BB(eb_start, ppc_state.pc, ppc_next_instruction_address, exec_flags);
             // define next execution block
             eb_start = ppc_next_instruction_address;
             if (!(exec_flags & EXEF_RFI) && (eb_start & PPC_PAGE_MASK) == page_start) {
@@ -373,6 +376,7 @@ void ppc_exec()
     if (setjmp(exc_env)) {
         // process low-level exceptions
         //LOG_F(9, "PPC-EXEC: low_level exception raised!");
+        TRACE_EMIT_BB(glob_bb_start_la, ppc_state.pc, ppc_next_instruction_address, exec_flags);
         ppc_state.pc = ppc_next_instruction_address;
     }
 
@@ -399,6 +403,7 @@ void ppc_exec_single()
     process_events();
 
     if (exec_flags) {
+        TRACE_EMIT_BB(ppc_state.pc, ppc_state.pc, ppc_next_instruction_address, exec_flags);
         ppc_state.pc = ppc_next_instruction_address;
         exec_flags = 0;
     } else {

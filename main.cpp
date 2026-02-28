@@ -32,6 +32,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <machines/machinebase.h>
 #include <machines/machinefactory.h>
 #include <utils/profiler.h>
+#include <trace/ppc_trace.h>
 #include <main.h>
 
 #include <cinttypes>
@@ -154,6 +155,36 @@ int main(int argc, char** argv) {
         "Specifies periodic interval (in ms) at which to output CPU profiling information");
 #endif
 
+#ifdef DPPC_TRACE_PPC
+    string   trace_file_path;
+    bool     trace_bb_flag    = true;
+    bool     no_trace_bb_flag = false;
+    bool     trace_insn_flag  = false;
+    string   trace_pc_start_str;
+    string   trace_pc_end_str;
+    uint32_t trace_every_n   = 1;
+    string   trace_dump_path;
+
+    auto trace_grp = app.add_option_group("tracing (requires DPPC_TRACE_PPC build)");
+    trace_grp->add_option("--trace-file", trace_file_path,
+        "Enable binary file sink: write trace records to <path>");
+    trace_grp->add_flag("--trace-bb",    trace_bb_flag,
+        "Enable basic-block tracing (default on when tracing is compiled in)");
+    trace_grp->add_flag("--no-trace-bb", no_trace_bb_flag,
+        "Disable basic-block tracing");
+    trace_grp->add_flag("--trace-insn",  trace_insn_flag,
+        "Enable per-instruction tracing (default off)");
+    trace_grp->add_option("--trace-pc-start", trace_pc_start_str,
+        "Only trace PCs >= this value (hex, e.g. 0x1000)");
+    trace_grp->add_option("--trace-pc-end",   trace_pc_end_str,
+        "Only trace PCs <= this value (hex)");
+    trace_grp->add_option("--trace-every",    trace_every_n,
+        "Emit one INSN record per N instructions (sampling; default 1)")
+        ->check(CLI::PositiveNumber);
+    trace_grp->add_option("--trace-dump",     trace_dump_path,
+        "On exit, dump the in-memory ring buffer to <path>");
+#endif /* DPPC_TRACE_PPC */
+
     string       machine_str;
     CLI::Option* machine_opt = app.add_option("-m,--machine",
         machine_str, "Specify machine ID");
@@ -260,6 +291,34 @@ int main(int argc, char** argv) {
     // initialize global profiler object
     gProfilerObj.reset(new Profiler());
 
+#ifdef DPPC_TRACE_PPC
+    {
+        TraceManager* tm = TraceManager::get_instance();
+        /* --no-trace-bb wins over --trace-bb */
+        tm->set_trace_bb(trace_bb_flag && !no_trace_bb_flag);
+        tm->set_trace_insn(trace_insn_flag);
+        tm->set_sample_every(trace_every_n);
+
+        if (!trace_pc_start_str.empty() || !trace_pc_end_str.empty()) {
+            uint32_t pc_s = trace_pc_start_str.empty()
+                ? 0u
+                : static_cast<uint32_t>(std::stoul(trace_pc_start_str, nullptr, 0));
+            uint32_t pc_e = trace_pc_end_str.empty()
+                ? 0xFFFFFFFFu
+                : static_cast<uint32_t>(std::stoul(trace_pc_end_str, nullptr, 0));
+            tm->set_pc_filter(pc_s, pc_e);
+        }
+
+        if (!trace_file_path.empty()) {
+            if (!tm->open_file(trace_file_path)) {
+                LOG_F(ERROR, "Tracing: cannot open file sink: %s", trace_file_path.c_str());
+            } else {
+                LOG_F(INFO, "Tracing: writing to %s", trace_file_path.c_str());
+            }
+        }
+    }
+#endif /* DPPC_TRACE_PPC */
+
     // graceful handling of fatal errors
     loguru::set_fatal_handler([](const loguru::Message& message) {
         // Make sure the reason for the failure is visible (it may have been
@@ -270,6 +329,13 @@ int main(int argc, char** argv) {
 
         // Ensure that NVRAM and other state is persisted before we terminate.
         delete gMachineObj.release();
+
+#ifdef DPPC_TRACE_PPC
+        /* Best-effort: dump the ring buffer to a fixed path on fatal error.
+         * Keep it simple and avoid recursion — do not log here. */
+        TraceManager::get_instance()->dump_ring("dingusppc_crash_trace.bin");
+        TraceManager::get_instance()->close();
+#endif
     });
 
     // redirect SIGINT to our own handler
@@ -307,6 +373,17 @@ int main(int argc, char** argv) {
 
     // if we didn't delete this then delete it now
     delete gMachineObj.release();
+
+#ifdef DPPC_TRACE_PPC
+    if (!trace_dump_path.empty()) {
+        if (!TraceManager::get_instance()->dump_ring(trace_dump_path)) {
+            LOG_F(ERROR, "Tracing: failed to dump ring buffer to %s", trace_dump_path.c_str());
+        } else {
+            LOG_F(INFO, "Tracing: ring buffer dumped to %s", trace_dump_path.c_str());
+        }
+    }
+    TraceManager::get_instance()->close();
+#endif /* DPPC_TRACE_PPC */
 
     cleanup();
 
