@@ -26,6 +26,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
 
+#ifdef DPPC_TRACE_PPC
+
 #include <trace/ppc_trace.h>
 
 #include <atomic>
@@ -120,3 +122,5 @@ private:
 
     static TraceManager* instance_;
 };
+
+#endif /* DPPC_TRACE_PPC */

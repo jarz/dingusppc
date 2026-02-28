@@ -20,7 +20,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 /** @file tracemanager.cpp
  *
  * TraceManager implementation: ring-buffer + file sink for PPC traces.
+ *
+ * This entire translation unit is a no-op when DPPC_TRACE_PPC is not defined,
+ * ensuring zero binary overhead when tracing is disabled.
  */
+
+#ifdef DPPC_TRACE_PPC
 
 #include <trace/tracemanager.h>
 
@@ -218,3 +223,5 @@ bool TraceManager::dump_ring(const std::string& path)
     fclose(f);
     return ok;
 }
+
+#endif /* DPPC_TRACE_PPC */

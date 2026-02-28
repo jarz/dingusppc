@@ -40,6 +40,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <cstring>
 #include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <CLI11.hpp>
 #include <loguru.hpp>
 
@@ -300,12 +301,17 @@ int main(int argc, char** argv) {
         tm->set_sample_every(trace_every_n);
 
         if (!trace_pc_start_str.empty() || !trace_pc_end_str.empty()) {
-            uint32_t pc_s = trace_pc_start_str.empty()
-                ? 0u
-                : static_cast<uint32_t>(std::stoul(trace_pc_start_str, nullptr, 0));
-            uint32_t pc_e = trace_pc_end_str.empty()
-                ? 0xFFFFFFFFu
-                : static_cast<uint32_t>(std::stoul(trace_pc_end_str, nullptr, 0));
+            uint32_t pc_s = 0u;
+            uint32_t pc_e = 0xFFFFFFFFu;
+            try {
+                if (!trace_pc_start_str.empty())
+                    pc_s = static_cast<uint32_t>(std::stoul(trace_pc_start_str, nullptr, 0));
+                if (!trace_pc_end_str.empty())
+                    pc_e = static_cast<uint32_t>(std::stoul(trace_pc_end_str, nullptr, 0));
+            } catch (const std::exception& e) {
+                LOG_F(ERROR, "Tracing: invalid PC filter value: %s", e.what());
+                return 1;
+            }
             tm->set_pc_filter(pc_s, pc_e);
         }
 
